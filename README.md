@@ -19,15 +19,15 @@
 
 상태: ✅ 완료 · 🚧 구현 예정
 
-- Day 2: **RAG** — MedlinePlus 건강 주제 + 응급증상 목록(별표 1)을 Titan 임베딩으로 Chroma에 저장. 한국어 증상을 영어 검색어로 바꿔 검색(쿼리 변환). ✅ 코퍼스·인덱스 / 🚧 검색 도구 연결
-- Day 1: **LCEL chain (Pydantic 구조화 출력)** — 응급 여부·관련 상태·진료과 후보·출처를 구조화해 답변 생성 🚧
-- Day 3: **ReAct** — `bind_tools`로 도메인 도구를 에이전트가 자율 선택 🚧
-- Day 4: **도구 다중(외부 API 포함)** — 응급 신호 점검, 근거 검색, 관련 상태, 진료과 추천, 국립중앙의료원 응급의료기관 조회(API 호출 확인) 🚧
-- Day 5: **가드레일·미들웨어** — 입력(개인정보 마스킹, 프롬프트 인젝션·범위 이탈 차단)과 출력(단정·확률·안심 표현 차단) 필터링 🚧
-- Day 5: **HITL/멀티턴** — 되묻기 상태를 LangGraph 체크포인트(`session_id` → `thread_id`)로 유지 🚧
-- Day 7: **Observability · Trace** — 응답의 `trace` 와 LangSmith 트레이스 🚧
+- Day 2: **RAG** — MedlinePlus 건강 주제 + 응급증상 목록(별표 1)을 Titan 임베딩으로 Chroma에 저장. 한국어 증상을 영어 검색어로 바꿔 검색(쿼리 변환). ✅
+- Day 1: **LCEL chain (Pydantic 구조화 출력)** — `프롬프트 | 모델.with_structured_output(스키마)` 체인으로 입력 분류, 응급 점검, 되묻기 판단, 관련 상태, 진료과를 구조화해 받음 ✅
+- Day 4: **도구 다중(외부 API 포함)** — 응급 점검, 근거 검색, 되묻기, 관련 상태, 진료과 추천, 국립중앙의료원 응급의료기관 조회 ✅
+- Day 5: **가드레일·미들웨어** — 입력(개인정보 마스킹, 프롬프트 인젝션·범위 이탈 분류)과 출력(확률·안심·병명 단정·약 용량 표현 제거) 필터링 ✅
+- Day 5: **멀티턴 상태** — 되묻기·지역 답변 상태를 LangGraph 체크포인트(`session_id` → `thread_id`)로 유지 ✅ (HITL `interrupt()` 는 쓰지 않음)
+- Day 7: **Observability · Trace** — 응답의 `trace`(단계 이름 = 도구 이름) ✅ / LangSmith 트레이스는 환경 변수로 연결 🚧 확인 필요
 - Day 7: **평가** — 자체 인-아웃 세트 + RAGAS + LLM-as-Judge 🚧
 - (인프라) Bedrock 호출 재시도 후 모델 폴백 ✅ — [src/llm.py](src/llm.py)
+- 쓰지 않은 패턴: **ReAct**(`bind_tools`로 모델이 도구를 고르게 하는 방식). 안전 정책(응급 점검 → 검색 → 되묻기 순서)을 코드로 보장하려고 LLM이 아니라 **LangGraph 그래프가 흐름을 정하고**, 각 단계의 판단만 LLM이 합니다.
 
 ## 아키텍처
 
@@ -37,14 +37,15 @@
    ▼
 FastAPI (src/server.py)
    ▼
-[에이전트 그래프 — 구현 예정]
-  1. 입력 가드레일 (PII 마스킹 · 인젝션/범위 이탈 차단)
-  2. check_red_flags      응급 신호 → 있으면 즉시 119/응급실 안내 후 종료
-  3. retrieve_guidelines  별표 1 + MedlinePlus 코퍼스 검색 (한국어 → 영어 검색어)
-  4. ask_followup         정보 부족 시 위험 신호부터 되묻기 (최대 3턴, 답마다 2번 재점검)
-  5. find_related_conditions → recommend_department   (응급이 아닐 때만)
-  6. 출력 가드레일 (단정·확률·안심 표현 차단, 출처·고지 확인)
-  7. 응급 권고 시 지역을 물어본 뒤 find_emergency_rooms
+[에이전트 그래프 (LangGraph) — src/agent.py]
+  1. begin/classify      입력 가드레일: PII 마스킹, 범위 분류(증상 / 범위 밖 / 제공 불가 / 인젝션)
+  2. triage (병렬)       check_red_flags(별표 1 기준 응급 점검) + retrieve_guidelines(근거 검색)
+        응급 → emergency: 119/응급실 안내 + 별표 1 근거 + 지역 질문
+        인젝션(증상 없음) → 거절
+  3. assess              ask_followup: 정보 부족이면 위험 신호부터 되묻기 (최대 3턴, 답마다 응급 재점검)
+  4. recommend           find_related_conditions + recommend_department (병렬, 응급이 아닐 때만)
+  5. finalize            출력 가드레일: 금지 표현 제거, 고지 문구 확인
+  (응급 안내 다음 턴) locate: 사용자가 알려준 지역으로 find_emergency_rooms 조회
    ▼
 { answer, contexts[{doc_id,text}], trace[{step,input,output}] }
 
@@ -80,7 +81,7 @@ python -m src.rag.build_index
 uvicorn src.server:app --reload
 ```
 
-브라우저에서 `http://127.0.0.1:8000` 을 엽니다. 현재는 `MOCK_MODE=1`(기본값)이라 UI 개발용 고정 응답이 나옵니다. `http://127.0.0.1:8000/health` 의 `index_ready` 로 인덱스 상태를 확인할 수 있습니다.
+브라우저에서 `http://127.0.0.1:8000` 을 엽니다. 실제 에이전트로 답하려면 `.env` 에 `MOCK_MODE=0` 을 넣습니다(기본값 `1` 은 UI 개발용 고정 응답). `http://127.0.0.1:8000/health` 의 `index_ready` 로 인덱스 상태를 확인할 수 있습니다.
 
 ### API
 
@@ -154,11 +155,15 @@ uvicorn src.server:app --reload
 - [src/rag/build_index.py](src/rag/build_index.py) — 임베딩·Chroma 인덱스 생성
 - [src/rag/embeddings.py](src/rag/embeddings.py) — Titan 임베딩 래퍼
 - [src/rag/index_check.py](src/rag/index_check.py) — 인덱스 없음 안내와 시작 점검
+- [src/agent.py:221](src/agent.py) — 메인 에이전트 그래프 (`build_graph`), 요청 진입점 `run_agent` ([src/agent.py:242](src/agent.py))
+- [src/tools.py](src/tools.py) — 도메인 도구 (`check_red_flags` :45, `ask_followup` :61, `find_emergency_rooms` :103 등)
+- [src/retriever.py](src/retriever.py) — RAG 검색 파이프라인 (한국어 → 영어 쿼리 변환, Chroma 검색)
+- [src/guardrails.py](src/guardrails.py) — 입력 가드레일(`mask_pii` :22)과 출력 가드레일(`output_guard` :52)
+- [src/llm_chain.py](src/llm_chain.py) — LCEL 구조화 출력 체인, [src/schemas.py](src/schemas.py) 스키마, [src/prompts.py](src/prompts.py) 프롬프트
+- [src/answers.py](src/answers.py) — 답변 문장 조립(고정 안내·고지는 LLM이 아닌 코드가 붙임)
+- [src/rag/](src/rag/) — 코퍼스 파싱, 임베딩, Chroma 인덱스 생성과 점검
 - [src/llm.py](src/llm.py) — Bedrock 호출 재시도와 모델 폴백
 - [src/server.py](src/server.py) — `POST /query` API
-- `src/agent.py` — 메인 에이전트 그래프 (구현 예정)
-- `src/tools.py` — 도메인 도구 (구현 예정)
-- `src/retriever.py` — RAG 검색 파이프라인 (구현 예정)
 
 ## 데이터 출처와 이용 조건
 

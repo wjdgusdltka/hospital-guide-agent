@@ -13,8 +13,15 @@ DEFAULT_MODELS = [
     "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 ]
 
+# Light steps (scope check, query translation, region extraction) use a faster/cheaper model first.
+DEFAULT_FAST_MODELS = [
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "global.anthropic.claude-sonnet-4-6",
+]
+
 AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 MODELS = [m.strip() for m in os.getenv("BEDROCK_MODELS", "").split(",") if m.strip()] or DEFAULT_MODELS
+FAST_MODELS = [m.strip() for m in os.getenv("BEDROCK_FAST_MODELS", "").split(",") if m.strip()] or DEFAULT_FAST_MODELS
 
 # Retry (boto3, per model) happens BEFORE falling back to the next model.
 MAX_RETRY_ATTEMPTS = int(os.getenv("BEDROCK_MAX_ATTEMPTS", "6"))

@@ -62,7 +62,15 @@ def health():
 def query(req: QueryRequest) -> QueryResponse:
     if MOCK_MODE:
         return _mock_response(req)
-    raise NotImplementedError("Agent is not wired yet (set MOCK_MODE=1 for now).")
+    # 실제 에이전트 실행 (동기 함수라 FastAPI가 스레드풀에서 돌린다). 같은 session_id 면 같은 대화로 이어진다.
+    from .agent import run_agent
+
+    result = run_agent(req.question, req.session_id)
+    return QueryResponse(
+        answer=result["answer"],
+        contexts=[Context(**c) for c in result["contexts"]],
+        trace=[TraceStep(**t) for t in result["trace"]],
+    )
 
 
 DISCLAIMER = "※ 참고용 안내이며 근거가 확실하지 않을 수 있습니다. 정확한 판단은 의사에게 받으세요."

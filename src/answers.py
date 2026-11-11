@@ -1,0 +1,77 @@
+"""최종 답변 문장 만들기. 고정 문구(고지·거절·안전망)는 LLM에 맡기지 않고 여기서 코드로 붙인다."""
+from .guardrails import DISCLAIMER
+
+# 거절 문구 (범위 밖 / 제공하지 않는 정보 / 프롬프트 인젝션)
+REFUSE_OUT_OF_SCOPE = (
+    "저는 증상을 듣고 응급실에 가야 할지, 외래라면 어느 진료과가 좋을지 안내하는 서비스예요. "
+    "건강과 관련 없는 질문에는 답해 드리기 어려워요.\n\n불편한 증상이 있으시면 말씀해 주세요."
+)
+REFUSE_UNAVAILABLE = (
+    "요청하신 정보(실시간 병상·대기시간, 진료·검사 비용, 특정 병원이나 의사 추천 등)는 제공하지 않아요. "
+    "병원에 직접 전화하거나 건강보험 관련 기관에 문의해 주세요. 응급 상황이면 바로 119에 연락하세요.\n\n"
+    "증상을 말씀해 주시면 응급실이 필요한지, 어느 진료과가 좋을지는 안내해 드릴 수 있어요."
+)
+REFUSE_INJECTION = (
+    "지시를 바꾸거나 내부 설정을 알려 드릴 수는 없어요. 안전을 위해 응급 신호가 있으면 언제나 응급 안내를 먼저 드려요.\n\n"
+    "불편한 증상이 있으시면 말씀해 주세요. " + "응급이 의심되면 즉시 119에 연락하세요."
+)
+INJECTION_NOTE = "참고로 안내 방식을 바꿔 달라는 요청은 따를 수 없어요."
+DOSAGE_NOTE = "약의 종류나 복용량은 안내해 드릴 수 없어요. 약은 의사나 약사와 상담해 주세요."
+DIAGNOSIS_NOTE = "병명을 확정하거나 확률로 말씀드릴 수는 없어요."
+
+
+def compose_emergency(matched: list[str], reason: str, notes: list[str]) -> str:
+    """응급 권고. 첫 문단이 핵심 메시지(UI가 크게 보여준다). 별표 1 근거와 지역 질문을 덧붙인다."""
+    parts = ["🚨 응급 신호가 의심됩니다. 지금 바로 119에 연락하거나 가까운 응급실을 이용하세요."]
+    basis = ""
+    if matched:
+        basis += "판단 근거(응급의료법 시행규칙 별표 1)\n" + "\n".join(f"- {m}" for m in matched)
+    if reason:
+        basis += ("\n" if basis else "") + reason
+    if basis:
+        parts.append(basis)
+    if notes:
+        parts.append(" ".join(notes))
+    parts.append("지역(시/도, 시/군/구)을 알려주시면 해당 지역의 응급의료기관을 안내해 드릴게요.")
+    parts.append(DISCLAIMER)
+    return "\n\n".join(parts)
+
+
+def compose_followup(questions: list[str], notes: list[str]) -> str:
+    """되묻기. 질문 1~2개와 '모르겠어요'도 괜찮다는 안내."""
+    lines = [" ".join(notes)] if notes else []
+    lines.append("정확히 안내드리기 위해 몇 가지 여쭤볼게요.")
+    lines.append("\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)))
+    lines.append("모르시면 '모르겠어요'라고 답하셔도 됩니다.")
+    return "\n\n".join(lines)
+
+
+def compose_recommendation(conditions: list[dict], departments: list[str], reason: str,
+                           watch_signs: list[str], conservative: bool, notes: list[str]) -> str:
+    """비응급 안내: 관련 상태(참고) + 진료과 후보 + 응급실 안전망 + 고지."""
+    parts = []
+    if notes:
+        parts.append(" ".join(notes))
+    parts.append("말씀해 주신 내용에서는 응급 신호가 확인되지 않았어요.")
+    if conditions:
+        lines = [f"- {c['name_ko']} ({c['name_en']}, 출처: {c['source']})" for c in conditions]
+        parts.append("**관련될 수 있는 상태(참고)**\n" + "\n".join(lines))
+    dept = " 또는 ".join(departments)
+    parts.append(f"**진료과 후보**\n- {dept}" + (f"\n{reason}" if reason else ""))
+    if watch_signs:
+        parts.append("**이런 경우에는 바로 응급실을 이용하세요**\n" + "\n".join(f"- {s}" for s in watch_signs))
+    if conservative:
+        parts.append("확인하지 못한 정보가 있어 보수적으로 안내드렸어요. 증상이 심해지거나 걱정되면 가까운 의료기관에 문의하거나 응급실을 이용하세요.")
+    parts.append(DISCLAIMER)
+    return "\n\n".join(parts)
+
+
+def compose_rooms(sido: str, sigungu: str | None, rooms: list[dict]) -> str:
+    """응급의료기관 목록 안내(병상 정보는 제공하지 않는다)."""
+    place = f"{sido} {sigungu}".strip() if sigungu else sido
+    if not rooms:
+        return (f"{place}에서 조회된 응급의료기관이 없어요. 지역 이름을 다시 알려 주시거나, 급하면 바로 119에 연락하세요.\n\n"
+                + DISCLAIMER)
+    lines = [f"- {r['name']} ({r['kind']}) / {r['address']} / 전화 {r['tel']}" for r in rooms]
+    return (f"{place}의 응급의료기관이에요.\n\n" + "\n".join(lines)
+            + "\n\n병상이나 대기 정보는 제공하지 않아요. 방문 전에 전화로 확인하시고, 급하면 119가 가장 빠르고 안전해요.\n\n" + DISCLAIMER)
