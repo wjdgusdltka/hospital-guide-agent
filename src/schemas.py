@@ -58,6 +58,12 @@ class DepartmentRec(BaseModel):
     watch_signs: list[str] = Field(description="이런 경우에는 바로 응급실로 가야 하는 신호 3개 이내")
 
 
+class EmergencyReply(BaseModel):
+    """응급 안내 뒤에 이어지는 대화에 대한 짧은 답변."""
+
+    reply: str = Field(description="사용자의 새 말에 직접 답하는 2~4문장 (해요체). 응급 권고는 유지하되 안내문을 반복하지 않는다")
+
+
 class LocationExtract(BaseModel):
     """사용자 메시지에서 뽑은 지역 (응급의료기관 조회용)."""
 

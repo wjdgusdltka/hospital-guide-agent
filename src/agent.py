@@ -3,7 +3,7 @@
 한 번의 요청이 지나가는 길:
   begin(개인정보 마스킹) -> classify(범위 분류)
      ├ 범위 밖/제공 불가            -> refuse
-     ├ (응급 안내 직후) 지역 답변   -> locate -> 응급의료기관 목록
+     ├ (응급 안내 이후의 대화)      -> locate: 지역이면 응급의료기관 목록, 아니면 emergency_followup(짧은 이어가기 답변)
      └ 증상 -> triage(응급 점검 + 근거 검색, 병렬)
             ├ 응급                  -> emergency
             ├ 인젝션                -> refuse_injection
@@ -34,6 +34,7 @@ class State(TypedDict, total=False):
     question: str  # 이번 턴 사용자 입력 (마스킹 후)
     history: Annotated[list[str], operator.add]  # 지금까지의 대화(사용자 발화 + 서비스 질문). 턴마다 누적
     followup_turns: int  # 지금까지 되묻기를 한 횟수
+    emergency_active: bool  # 이 대화에서 응급 안내가 나갔는가 (이후 턴은 응급 점검을 반복하지 않고 대화를 이어간다)
     awaiting_location: bool  # 응급 안내 후 지역 답변을 기다리는 중인가
     last_kind: str  # 직전 응답 유형: followup / emergency / refuse / answer
     scope: dict  # 입력 분류 결과
@@ -97,8 +98,8 @@ def route_after_classify(state: State) -> str:
     cat = state["scope"]["category"]
     if cat in ("out_of_scope", "unavailable"):
         return "refuse"
-    if state.get("awaiting_location") and cat == "symptom":
-        return "locate"
+    if state.get("emergency_active") and cat == "symptom":
+        return "locate"  # 응급 안내 뒤의 대화: 지역이면 기관 조회, 아니면 짧은 이어가기 답변
     return "triage"
 
 
@@ -109,10 +110,10 @@ def refuse(state: State) -> dict:
 
 
 def locate(state: State) -> dict:
-    """응급 안내 뒤에 받은 지역 답변으로 응급의료기관 목록을 조회한다. 지역이 없으면 다시 증상 흐름으로 보낸다."""
+    """응급 안내 뒤의 메시지에서 지역을 찾아 응급의료기관 목록을 조회한다. 지역이 없으면 이어가기 답변으로 보낸다."""
     loc = tools.extract_location(state["question"])
     if not (loc.found and loc.sido):
-        return {"awaiting_location": False, "trace": _step(state, "find_emergency_rooms", state["question"], "지역 없음 -> 증상 흐름으로")}
+        return {"trace": _step(state, "find_emergency_rooms", state["question"], "지역 없음 -> 대화 이어가기")}
     rooms = tools.find_emergency_rooms(loc.sido, loc.sigungu)
     names = ", ".join(r["name"] for r in rooms) or "결과 없음"
     return {
@@ -123,8 +124,19 @@ def locate(state: State) -> dict:
 
 
 def route_after_locate(state: State) -> str:
-    """지역 조회로 답이 만들어졌으면 마무리, 아니면 증상 흐름으로 이어간다."""
-    return "finalize" if state.get("answer") else "triage"
+    """지역 조회로 답이 만들어졌으면 마무리, 아니면 응급 대화 이어가기로."""
+    return "finalize" if state.get("answer") else "emergency_followup"
+
+
+def emergency_followup(state: State) -> dict:
+    """응급 안내 뒤 사용자가 덧붙인 말('쉬면 나아질까요?', '설사도 해요')에 짧게 답한다.
+
+    응급 점검을 다시 돌리지 않으므로 같은 안내문이 반복되지 않는다. 응급 권고는 답변 안에서 유지된다.
+    """
+    reply = tools.reply_in_emergency(_history_text(state), state["question"])
+    text = answers.compose_emergency_reply(reply, state.get("notes", []), state.get("awaiting_location", False))
+    return {"answer": text, "history": [f"서비스 답변: {reply}"], "last_kind": "emergency",
+            "trace": _step(state, "emergency_followup", state["question"], reply)}
 
 
 def triage(state: State) -> dict:
@@ -164,7 +176,8 @@ def emergency(state: State) -> dict:
     red = state["red"]
     annex = retriever.search_annex(_history_text(state))
     text = answers.compose_emergency(red["matched_items"], red["reason"], state.get("notes", []))
-    return {"answer": text, "contexts": _contexts(annex), "awaiting_location": True, "followup_turns": 0, "last_kind": "emergency"}
+    return {"answer": text, "contexts": _contexts(annex), "emergency_active": True, "awaiting_location": True,
+            "followup_turns": 0, "last_kind": "emergency"}
 
 
 def refuse_injection(state: State) -> dict:
@@ -221,12 +234,14 @@ def finalize(state: State) -> dict:
 def build_graph():
     """노드와 분기를 연결해 컴파일한다. 체크포인터가 session_id 별 대화 상태를 보관한다."""
     g = StateGraph(State)
-    for fn in (begin, classify, refuse, locate, triage, emergency, refuse_injection, assess, recommend, finalize):
+    for fn in (begin, classify, refuse, locate, emergency_followup, triage, emergency, refuse_injection, assess,
+               recommend, finalize):
         g.add_node(fn.__name__, fn)
     g.add_edge(START, "begin")
     g.add_edge("begin", "classify")
     g.add_conditional_edges("classify", route_after_classify, ["refuse", "locate", "triage"])
-    g.add_conditional_edges("locate", route_after_locate, ["finalize", "triage"])
+    g.add_conditional_edges("locate", route_after_locate, ["finalize", "emergency_followup"])
+    g.add_edge("emergency_followup", "finalize")
     g.add_conditional_edges("triage", route_after_triage, ["emergency", "refuse_injection", "assess"])
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])
     for node in ("refuse", "emergency", "refuse_injection", "recommend"):

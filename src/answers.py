@@ -24,6 +24,8 @@ def compose_emergency(matched: list[str], reason: str, notes: list[str]) -> str:
     """응급 권고. 첫 문단이 핵심 메시지(UI가 크게 보여준다). 별표 1 근거와 지역 질문을 덧붙인다."""
     parts = ["🚨 응급 신호가 의심됩니다. 지금 바로 119에 연락하거나 가까운 응급실을 이용하세요."]
     basis = ""
+    # 한 항목이 다른 항목에 포함되면('호흡곤란' / '급성 호흡곤란') 겹치므로 짧은 쪽을 뺀다
+    matched = [m for m in matched if not any(m != o and m in o for o in matched)]
     if matched:
         basis += "판단 근거(응급의료법 시행규칙 별표 1)\n" + "\n".join(f"- {m}" for m in matched)
     if reason:
@@ -33,6 +35,17 @@ def compose_emergency(matched: list[str], reason: str, notes: list[str]) -> str:
     if notes:
         parts.append(" ".join(notes))
     parts.append("지역(시/도, 시/군/구)을 알려주시면 해당 지역의 응급의료기관을 안내해 드릴게요.")
+    parts.append(DISCLAIMER)
+    return "\n\n".join(parts)
+
+
+def compose_emergency_reply(reply: str, notes: list[str], ask_location: bool) -> str:
+    """응급 안내 뒤 이어지는 대화 답변. 안내문을 통째로 반복하지 않고, 아직 지역을 못 받았으면 한 줄만 다시 묻는다."""
+    parts = [reply]
+    if notes:
+        parts.append(" ".join(notes))
+    if ask_location:
+        parts.append("지역(시/도, 시/군/구)을 알려주시면 가까운 응급의료기관을 안내해 드릴게요.")
     parts.append(DISCLAIMER)
     return "\n\n".join(parts)
 

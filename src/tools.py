@@ -11,8 +11,9 @@ import xml.etree.ElementTree as ET
 
 from . import config
 from .llm_chain import structured_chain
-from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, LOCATION_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM)
-from .schemas import Assessment, DepartmentRec, LocationExtract, RedFlagResult, RelatedConditions
+from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, EMERGENCY_REPLY_SYSTEM, LOCATION_SYSTEM,
+                      RELATED_SYSTEM, REDFLAG_SYSTEM)
+from .schemas import (Assessment, DepartmentRec, EmergencyReply, LocationExtract, RedFlagResult, RelatedConditions)
 
 
 # ------------------------------------------------------------ check_red_flags
@@ -94,6 +95,13 @@ def recommend_department(history_text: str, docs: list[dict]) -> DepartmentRec:
     return result
 
 
+# ----------------------------------------------------------- emergency_followup
+def reply_in_emergency(history_text: str, message: str) -> str:
+    """응급 안내 뒤 이어지는 사용자 말에 짧게 답한다 (응급 점검을 다시 돌리지 않고 대화를 이어간다)."""
+    payload = f"[대화]\n{history_text}\n\n[사용자의 새 말]\n{message}"
+    return structured_chain("emergency_reply", EmergencyReply, EMERGENCY_REPLY_SYSTEM, fast=True).invoke({"input": payload}).reply.strip()
+
+
 # ------------------------------------------------------ find_emergency_rooms
 def extract_location(text: str) -> LocationExtract:
     """사용자 메시지에서 시/도·시/군/구를 뽑는다 (빠른 모델)."""
@@ -101,7 +109,22 @@ def extract_location(text: str) -> LocationExtract:
 
 
 def find_emergency_rooms(sido: str, sigungu: str | None = None, limit: int = 8) -> list[dict]:
-    """국립중앙의료원 '응급의료기관 목록정보 조회'를 호출해 기관명·구분·주소·전화를 돌려준다. 실패하면 빈 목록."""
+    """국립중앙의료원 '응급의료기관 목록정보 조회'를 호출해 기관명·구분·주소·전화를 돌려준다. 실패하면 빈 목록.
+
+    API는 '수원시 영통구'(띄어쓰기)를 못 찾고 '수원시영통구'나 '영통구'는 찾는다. 그래서 표기를 바꿔가며 결과가 나올 때까지 시도한다.
+    """
+    if not sigungu:
+        return _query_rooms(sido, None, limit)
+    words = sigungu.split()
+    for candidate in dict.fromkeys([sigungu.replace(" ", ""), words[-1]]):  # 띄어쓰기 제거 -> 마지막 단어 순
+        rooms = _query_rooms(sido, candidate, limit)
+        if rooms:
+            return rooms
+    return []
+
+
+def _query_rooms(sido: str, sigungu: str | None, limit: int) -> list[dict]:
+    """API 한 번 호출 (시/도, 시/군/구 문자열을 그대로 사용)."""
     endpoint = os.getenv("GOV_DATA_API_ENDPOINT", "").rstrip("/")
     key = os.getenv("GOV_DATA_API_KEY", "")
     if not endpoint or not key:
