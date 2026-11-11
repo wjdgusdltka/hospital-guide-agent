@@ -2,10 +2,304 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>증상 안내 어시스턴트</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>병원 길잡이 Agent</title>
+  <style>
+    :root {
+      --bg: #f4f6f8; --panel: #ffffff; --text: #1d2733; --muted: #6a7785; --line: #e1e6eb;
+      --brand: #1f7a6d; --brand-ink: #ffffff;
+      --user: #1f7a6d; --user-ink: #ffffff;
+      --bot: #ffffff; --bot-ink: #1d2733;
+      --warn-bg: #fff7e0; --warn-ink: #7a5a00; --warn-line: #f0dfa6;
+      --danger-bg: #fdecec; --danger-ink: #8a1c1c; --danger-line: #f1b5b5;
+      --radius: 16px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12171c; --panel: #1b222a; --text: #e7edf2; --muted: #93a1ae; --line: #2b343e;
+        --brand: #3fb7a5; --brand-ink: #0c1512;
+        --user: #2a8f80; --user-ink: #ffffff;
+        --bot: #1b222a; --bot-ink: #e7edf2;
+        --warn-bg: #2d2610; --warn-ink: #f0d98a; --warn-line: #4a3f17;
+        --danger-bg: #371a1a; --danger-ink: #ffb4b4; --danger-line: #5c2a2a;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      line-height: 1.55;
+    }
+    .app {
+      max-width: 760px; height: 100dvh; margin: 0 auto; display: flex; flex-direction: column;
+      background: var(--bg);
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top));
+      background: var(--panel); border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .logo {
+      width: 36px; height: 36px; border-radius: 10px; background: var(--brand); color: var(--brand-ink);
+      display: grid; place-items: center; font-size: 20px; flex: none;
+    }
+    .brand h1 { margin: 0; font-size: 17px; line-height: 1.2; }
+    .brand p { margin: 0; font-size: 12px; color: var(--muted); }
+    button.ghost {
+      border: 1px solid var(--line); background: transparent; color: var(--text);
+      padding: 8px 12px; border-radius: 10px; font-size: 14px; cursor: pointer; flex: none;
+    }
+    button.ghost:hover { background: var(--bg); }
+    .notice {
+      margin: 0; padding: 8px 16px; font-size: 12.5px;
+      background: var(--warn-bg); color: var(--warn-ink); border-bottom: 1px solid var(--warn-line);
+    }
+    main { flex: 1; overflow-y: auto; padding: 16px; scroll-behavior: smooth; }
+    .empty { text-align: center; color: var(--muted); padding: 32px 8px 8px; }
+    .empty h2 { color: var(--text); font-size: 19px; margin: 0 0 6px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+    .chip {
+      border: 1px solid var(--line); background: var(--panel); color: var(--text);
+      border-radius: 999px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+    }
+    .chip:hover { border-color: var(--brand); }
+    .row { display: flex; margin: 10px 0; }
+    .row.user { justify-content: flex-end; }
+    .bubble {
+      max-width: min(86%, 560px); padding: 10px 14px; border-radius: var(--radius);
+      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+    }
+    .user .bubble { background: var(--user); color: var(--user-ink); border-bottom-right-radius: 4px; }
+    .bot .bubble { background: var(--bot); color: var(--bot-ink); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+    .bot .bubble.emergency { background: var(--danger-bg); color: var(--danger-ink); border-color: var(--danger-line); }
+    .bot .bubble.error { background: var(--warn-bg); color: var(--warn-ink); border-color: var(--warn-line); }
+    .bot-wrap { max-width: min(86%, 560px); }
+    .bot-wrap .bubble { max-width: 100%; }
+    details { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    details summary { cursor: pointer; user-select: none; padding: 2px 0; }
+    details .box {
+      margin-top: 4px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+      border-radius: 10px; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto;
+      color: var(--text); font-size: 12.5px;
+    }
+    .box .item { padding: 4px 0; border-bottom: 1px dashed var(--line); }
+    .box .item:last-child { border-bottom: 0; }
+    .box code { color: var(--brand); font-weight: 600; }
+    .typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+    .typing span {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite both;
+    }
+    .typing span:nth-child(2) { animation-delay: .2s; }
+    .typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+    form {
+      display: flex; align-items: flex-end; gap: 8px; padding: 10px 16px;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
+      background: var(--panel); border-top: 1px solid var(--line);
+    }
+    textarea {
+      flex: 1; resize: none; max-height: 140px; padding: 10px 12px; font: inherit; font-size: 16px;
+      color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; outline: none;
+    }
+    textarea:focus { border-color: var(--brand); }
+    button.send {
+      border: 0; background: var(--brand); color: var(--brand-ink); font-weight: 600; font-size: 15px;
+      padding: 0 18px; height: 44px; border-radius: 12px; cursor: pointer; flex: none;
+    }
+    button.send:disabled { opacity: .5; cursor: not-allowed; }
+    footer { text-align: center; font-size: 11.5px; color: var(--muted); padding: 0 16px 8px; background: var(--panel); }
+  </style>
 </head>
 <body>
-  <p>UI placeholder — chat UI will be built here.</p>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true">🏥</div>
+        <div>
+          <h1>병원 길잡이</h1>
+          <p>응급실? 외래? 증상을 말씀해 보세요</p>
+        </div>
+      </div>
+      <button class="ghost" id="reset" type="button">새 대화</button>
+    </header>
+
+    <p class="notice">개인 학습용 프로젝트입니다. 안내는 <b>단순 참고용</b>이며 의사의 진단을 대신하지 않습니다. 응급이 의심되면 즉시 <b>119</b>에 연락하세요.</p>
+
+    <main id="chat" aria-live="polite"></main>
+
+    <form id="form" autocomplete="off">
+      <textarea id="input" rows="1" placeholder="증상을 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)" aria-label="증상 입력"></textarea>
+      <button class="send" id="send" type="submit">전송</button>
+    </form>
+    <footer>이 서비스는 의료 서비스가 아니며 정확성을 보장하지 않습니다.</footer>
+  </div>
+
+  <script>
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    const EXAMPLES = [
+      "어제부터 설사랑 극심한 두통이 있어요",
+      "가슴이 답답하고 숨이 차요",
+      "아이가 밤에 열이 나요",
+      "배가 아픈데 어느 과로 가야 하나요?",
+    ];
+
+    // session_id: keeps the conversation (multi-turn). sessionStorage may be unavailable, so fall back to memory.
+    let sessionId = null;
+    function newSession() {
+      sessionId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random().toString(16).slice(2);
+      try { sessionStorage.setItem("sid", sessionId); } catch (_) {}
+    }
+    try { sessionId = sessionStorage.getItem("sid"); } catch (_) {}
+    if (!sessionId) newSession();
+
+    function el(tag, cls, text) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    }
+
+    // Safe rendering: text only, with **bold** turned into <b> without allowing any HTML from the server.
+    function setRichText(node, text) {
+      node.textContent = "";
+      text.split(/(\*\*[^*]+\*\*)/g).forEach((part) => {
+        if (part.startsWith("**") && part.endsWith("**") && part.length > 4) node.appendChild(el("b", "", part.slice(2, -2)));
+        else node.appendChild(document.createTextNode(part));
+      });
+    }
+
+    function scrollDown() { chat.scrollTop = chat.scrollHeight; }
+
+    function showEmpty() {
+      chat.textContent = "";
+      const box = el("div", "empty");
+      box.appendChild(el("h2", "", "어디가 불편하신가요?"));
+      box.appendChild(el("div", "", "증상을 말씀하시면 응급실에 가야 할지, 외래라면 어느 과가 좋을지 근거와 함께 안내해 드려요."));
+      const chips = el("div", "chips");
+      EXAMPLES.forEach((t) => {
+        const c = el("button", "chip", t);
+        c.type = "button";
+        c.addEventListener("click", () => send(t));
+        chips.appendChild(c);
+      });
+      box.appendChild(chips);
+      chat.appendChild(box);
+    }
+
+    function addUser(text) {
+      const row = el("div", "row user");
+      row.appendChild(el("div", "bubble", text));
+      chat.appendChild(row);
+      scrollDown();
+    }
+
+    function addTyping() {
+      const row = el("div", "row bot");
+      const b = el("div", "bubble");
+      const t = el("span", "typing");
+      t.append(el("span"), el("span"), el("span"));
+      b.appendChild(t);
+      row.appendChild(b);
+      chat.appendChild(row);
+      scrollDown();
+      return row;
+    }
+
+    function addDetails(wrap, title, build) {
+      const d = el("details");
+      d.appendChild(el("summary", "", title));
+      const box = el("div", "box");
+      build(box);
+      d.appendChild(box);
+      wrap.appendChild(d);
+    }
+
+    function addBot(data, isError) {
+      const row = el("div", "row bot");
+      const wrap = el("div", "bot-wrap");
+      const bubble = el("div", "bubble");
+      setRichText(bubble, data.answer);
+      if (isError) bubble.classList.add("error");
+      else if (data.answer.trim().startsWith("🚨")) bubble.classList.add("emergency");
+      wrap.appendChild(bubble);
+
+      if (data.contexts && data.contexts.length) {
+        addDetails(wrap, `근거 문서 ${data.contexts.length}건`, (box) => {
+          data.contexts.forEach((c) => {
+            const it = el("div", "item");
+            it.appendChild(el("code", "", c.doc_id));
+            it.appendChild(document.createTextNode("\n" + c.text));
+            box.appendChild(it);
+          });
+        });
+      }
+      if (data.trace && data.trace.length) {
+        addDetails(wrap, `처리 과정 ${data.trace.length}단계`, (box) => {
+          data.trace.forEach((s) => {
+            const it = el("div", "item");
+            it.appendChild(el("code", "", s.step));
+            it.appendChild(document.createTextNode(`\n입력: ${s.input}\n출력: ${s.output}`));
+            box.appendChild(it);
+          });
+        });
+      }
+      row.appendChild(wrap);
+      chat.appendChild(row);
+      scrollDown();
+    }
+
+    let busy = false;
+    async function send(text) {
+      text = (text || "").trim();
+      if (!text || busy) return;
+      if (chat.querySelector(".empty")) chat.textContent = "";
+      busy = true; sendBtn.disabled = true;
+      addUser(text);
+      input.value = ""; autosize();
+      const typing = addTyping();
+      try {
+        const res = await fetch("/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: text, session_id: sessionId }),
+        });
+        if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
+        const data = await res.json();
+        typing.remove();
+        addBot(data, false);
+      } catch (err) {
+        typing.remove();
+        addBot({ answer: "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.\n(" + err.message + ")", contexts: [], trace: [] }, true);
+      } finally {
+        busy = false; sendBtn.disabled = false; input.focus();
+      }
+    }
+
+    function autosize() {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 140) + "px";
+    }
+
+    form.addEventListener("submit", (e) => { e.preventDefault(); send(input.value); });
+    input.addEventListener("input", autosize);
+    // Enter sends; Shift+Enter = newline; ignore Enter while a Korean IME is still composing a syllable.
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+        e.preventDefault();
+        send(input.value);
+      }
+    });
+    document.getElementById("reset").addEventListener("click", () => {
+      if (busy) return;
+      newSession(); showEmpty(); input.focus();
+    });
+
+    showEmpty();
+  </script>
 </body>
 </html>
