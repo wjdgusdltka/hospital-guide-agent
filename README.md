@@ -16,7 +16,7 @@
 
 ## 현재 상태
 
-개발 중입니다. 현재는 API 서버와 UI 자리(mock 응답), Bedrock 모델 연결(재시도 후 폴백)까지 준비되어 있습니다. RAG 코퍼스, 에이전트 로직, 평가 세트는 구현 예정입니다.
+개발 중입니다. 현재는 API 서버와 UI 자리(mock 응답), Bedrock 모델 연결(재시도 후 폴백), **RAG 코퍼스(Chroma 인덱스)** 까지 준비되어 있습니다. 에이전트 로직과 평가 세트는 구현 예정입니다.
 
 ## 구성
 
@@ -32,14 +32,41 @@ SERVICE.md    # 서비스 기획
 
 Python 3.14에서 개발했습니다.
 
+> ⚠️ **서버를 실행하기 전에 3번 "인덱스 생성"을 반드시 먼저 실행해야 합니다.**
+> 검색용 인덱스(Chroma DB, `data/chroma/`)는 저장소에 들어 있지 않고 **직접 만들어야** 합니다. 만들지 않으면 서버가 시작되지 않고(`MOCK_MODE=0`일 때) 안내 메시지를 출력합니다.
+
+**1. 가상환경과 패키지**
+
 ```bash
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -r requirements.txt
+```
+
+**2. `.env` 만들기** — 아래 "환경 변수" 표를 보고 AWS 키를 넣습니다. (인덱스 생성과 질의 모두 Bedrock 임베딩을 호출하므로 키가 필요합니다.)
+
+**3. 인덱스 생성 (최초 1회, 약 2분, 임베딩 비용 수십 원 이하)**
+
+```bash
+python -m src.rag.build_index
+```
+
+완료 후 `done. total in collection: 1740` 이 출력되면 성공입니다. 코퍼스를 처음부터 다시 만들려면 `--rebuild` 를 붙입니다.
+
+**4. 서버 실행**
+
+```bash
 uvicorn src.server:app --reload
 ```
 
-브라우저에서 `http://127.0.0.1:8000` 을 열면 됩니다. 현재는 `MOCK_MODE=1`(기본값)이라 고정 응답이 나옵니다.
+브라우저에서 `http://127.0.0.1:8000` 을 열면 됩니다. 현재는 `MOCK_MODE=1`(기본값)이라 고정 응답이 나옵니다. `http://127.0.0.1:8000/health` 의 `index_ready` 로 인덱스 상태를 확인할 수 있습니다.
+
+### RAG 코퍼스와 Chroma 인덱스
+
+- 구성: MedlinePlus 건강 주제(영문, 2026-11-10 기준 1,725 청크) + 응급증상 목록(별표 1, 15 청크). 임베딩은 Amazon Titan Text Embeddings V2(512차원)입니다.
+- 원본은 `data/sources/` 에 포함되어 있습니다(MedlinePlus는 최근 6개 날짜 파일만 공개하므로 압축 원본을 함께 보관합니다). 인덱스(`data/chroma/`, 약 24MB)는 위 3번 명령으로 만들며 git에서 제외됩니다.
+- `data/chroma/chroma.sqlite3` 는 VS Code의 SQLite 확장으로 열어 볼 수 있습니다. 문서 내용과 메타데이터는 `embedding_metadata`, 청크 목록은 `embeddings` 테이블에서 확인할 수 있습니다.
+- 검색 시험 결과: 한국어 질의를 그대로 임베딩하면 영문 문서가 거의 찾아지지 않았습니다(12개 중 0개). 영어 키워드로 바꾸면 12개 중 9개가 기대한 주제를 상위 5개 안에서 찾았습니다. 그래서 한국어 질의는 영어 키워드로 변환한 뒤 검색합니다.
 
 ### API
 

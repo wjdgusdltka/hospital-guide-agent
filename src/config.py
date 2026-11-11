@@ -23,5 +23,17 @@ READ_TIMEOUT_S = int(os.getenv("BEDROCK_READ_TIMEOUT", "60"))
 TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2048"))
 
+# --- RAG (embeddings + Chroma) ---
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+EMBED_MODEL_ID = os.getenv("EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "512"))
+CHROMA_DIR = Path(os.getenv("CHROMA_DIR", ROOT_DIR / "data" / "chroma"))  # git-ignored: build it with `python -m src.rag.build_index`
+COLLECTION_NAME = "hospital_guide"
+SOURCES_DIR = ROOT_DIR / "data" / "sources"  # committed source data
+MEDLINEPLUS_DATE = os.getenv("MEDLINEPLUS_DATE", "2026-11-10")  # pinned so evaluations are reproducible
+ANNEX1_PATH = SOURCES_DIR / "emergency_symptoms_annex1.md"
+
 # Set to 1 to disable fallbacks (use for evaluation runs so round1/round2 stay comparable).
 DISABLE_FALLBACK = os.getenv("DISABLE_FALLBACK", "0") == "1"

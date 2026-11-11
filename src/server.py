@@ -1,5 +1,6 @@
 """FastAPI server: POST /query (course API spec) + static chat UI from web/."""
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -7,11 +8,26 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import config  # noqa: F401  (loads .env)
-
-app = FastAPI(title="Symptom Triage Agent")
+from .rag.index_check import NOT_READY_MESSAGE, ensure_index, index_status
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MOCK_MODE = os.getenv("MOCK_MODE", "1") == "1"
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Real mode: refuse to start without the search index (answers without evidence are not allowed).
+    # Mock mode (UI development): only warn.
+    if MOCK_MODE:
+        st = index_status()
+        if not st["ready"]:
+            print(NOT_READY_MESSAGE.format(reason=st["reason"]))
+    else:
+        ensure_index()
+    yield
+
+
+app = FastAPI(title="병원 길잡이 Agent", lifespan=lifespan)
 
 
 class QueryRequest(BaseModel):
@@ -37,7 +53,8 @@ class QueryResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "mock": MOCK_MODE}
+    st = index_status()
+    return {"status": "ok", "mock": MOCK_MODE, "index_ready": st["ready"], "index_docs": st["docs"], "index_note": st["reason"]}
 
 
 @app.post("/query", response_model=QueryResponse)
