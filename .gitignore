@@ -28,3 +28,6 @@ chroma_db/
 vectorstore/
 data/raw/
 data/chroma/
+
+# Hallmark design-skill working files
+.hallmark/

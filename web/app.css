@@ -1,0 +1,185 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Dose (deal 1/3, seed calm-trustworthy-healthcare-symptom-1180·b27b873c·2026-11-11·r0) · redesign: full
+ * nav: top bar · signature: the emergency ink band, with 119 set large in mint · states: default, hover, focus-visible, active, disabled, loading (aria-busy), empty, error · dose: white, night by prefers-color-scheme
+ * axes: light/grotesk-sans/chromatic-green · posture: committed · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S3 R5 V3 · weakest: S, a chat column in a calm green can read as any health app; the emergency answer became an ink band with 119 at display size so the one screen that matters cannot be mistaken for a normal reply */
+@import url("./tokens.css");
+@import url("./base.css");
+
+/* Page tokens: Korean-capable faces behind the theme's, the night ground, and the surfaces the chat needs. */
+:root {
+  color-scheme: light dark;
+  --font-display: "Schibsted Grotesk", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", ui-sans-serif, sans-serif;
+  --font-body: "Instrument Sans", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", ui-sans-serif, sans-serif;
+  --tracking-display: -0.01em;
+  --surface: var(--light);
+  --ground: var(--color-paper-3);
+  --radius-phone: 28px;
+  --band-bg: var(--color-ink);
+  --band-fg: var(--color-paper);
+  --band-mark: var(--color-accent-soft);
+  --alert-badge: oklch(45% 0.17 27);
+  --tray-shade: color-mix(in oklab, var(--color-ink) 14%, transparent);
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.4  0 0 0 0 0.35  0 0 0 0.09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: oklch(13% 0.01 170); --color-paper-2: oklch(16% 0.013 170); --color-paper-3: oklch(21% 0.018 170);
+    --color-ink: oklch(96% 0.01 160); --color-ink-2: oklch(86% 0.012 160); --color-muted: oklch(72% 0.02 165);
+    --color-rule: oklch(30% 0.02 165);
+    --color-accent: oklch(74% 0.13 160); --color-accent-deep: oklch(64% 0.12 160); --color-accent-soft: oklch(34% 0.07 160); --color-accent-ink: oklch(15% 0.02 170);
+    --color-focus: oklch(80% 0.13 160);
+    --color-error: oklch(66% 0.17 27);
+    --light: oklch(19% 0.014 170); --glint: oklch(100% 0 0 / 0.14);
+    --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.4);
+    --band-bg: oklch(24% 0.03 170);
+    --band-fg: oklch(96% 0.01 160);
+    --band-mark: oklch(88% 0.08 160);
+    --alert-badge: oklch(66% 0.17 27);
+  }
+}
+
+html { background: var(--ground); }
+body { background: var(--ground); }
+/* Korean breaks between words, not inside them. */
+.bubble, .alert-lead, .lead, .notice, .brand p, .item, .fine, .chip, .empty h2 { word-break: keep-all; }
+
+/* Shell: one centred column, top bar, notice, scrolling chat, composer. */
+/* Phone-sized column: full screen on a phone, one rounded card centred on a larger screen. */
+body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; }
+.app {
+  width: 100%; max-width: 26rem; height: 100dvh; overflow: hidden; container-type: inline-size;
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto;
+  background-color: var(--color-paper); background-image: var(--grain);
+}
+@media (min-width: 40rem) {
+  body { padding: var(--space-lg); }
+  .app {
+    height: min(calc(100dvh - 2 * var(--space-lg)), 54rem);
+    border-radius: var(--radius-phone); box-shadow: var(--shadow-lift);
+  }
+}
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md); padding-top: max(var(--space-sm), env(safe-area-inset-top));
+  background: var(--surface); border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+.brand { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; }
+.mark {
+  flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+  border-radius: var(--radius-input); color: var(--color-accent-ink);
+  background: linear-gradient(var(--color-accent), var(--color-accent-deep));
+  box-shadow: inset 0 1px 0 var(--glint), 0 2px 0 var(--color-accent-deep);
+}
+.brand h1 { font-size: var(--text-lg); max-width: none; }
+.brand p { font-size: var(--text-sm); color: var(--color-muted); line-height: 1.3; }
+
+/* Controls: moulded plastic, 44px hit target, sinks on press. */
+.btn {
+  min-height: 44px; padding: 0 var(--space-md); border: 0; border-radius: var(--radius-input);
+  font: 500 var(--text-md) var(--font-body); cursor: pointer; color: var(--color-ink);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--glint), 0 0 0 var(--rule-hair) var(--color-rule), 0 2px 0 var(--color-rule);
+  transition: transform var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+.btn:hover { background: var(--color-paper-2); }
+.btn:active { transform: translateY(2px); box-shadow: inset 0 1px 0 var(--glint), 0 0 0 var(--rule-hair) var(--color-rule); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+.btn--primary {
+  min-height: 52px; padding-inline: var(--space-lg); color: var(--color-accent-ink);
+  background: linear-gradient(var(--color-accent), var(--color-accent-deep));
+  box-shadow: inset 0 1px 0 var(--glint), 0 0 0 var(--rule-hair) var(--color-accent-deep), 0 3px 0 var(--color-accent-deep);
+}
+.btn--primary:hover { background: linear-gradient(var(--color-accent), var(--color-accent-deep)); filter: brightness(1.06); }
+.btn--primary:active { transform: translateY(3px); box-shadow: inset 0 1px 0 var(--glint), 0 0 0 var(--rule-hair) var(--color-accent-deep); }
+.btn--primary[aria-busy="true"] { cursor: progress; opacity: 0.7; }
+
+.notice {
+  margin: 0; padding: var(--space-xs) var(--space-md); font-size: var(--text-sm); line-height: 1.45;
+  background: var(--color-paper-3); color: var(--color-ink-2); border-bottom: var(--rule-hair) solid var(--color-rule);
+  max-width: none;
+}
+.notice b { font-weight: 700; color: var(--color-ink); }
+
+/* Chat region */
+.chat { overflow-y: auto; padding: var(--space-md); scroll-behavior: smooth; overscroll-behavior: contain; }
+
+.empty { padding: var(--space-lg) var(--space-2xs) var(--space-xs); }
+.empty h2 { font-size: var(--text-xl); max-width: 22ch; margin-bottom: var(--space-xs); }
+.empty .lead { color: var(--color-muted); font-size: var(--text-md); }
+.chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-xs); margin-top: var(--space-lg); }
+.chip { text-align: left; min-height: 52px; padding: var(--space-xs) var(--space-md); line-height: 1.35; }
+
+.row { display: flex; margin: var(--space-sm) 0; animation: rise var(--dur-short) var(--ease-out) both; }
+.row--user { justify-content: flex-end; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.stack { max-width: min(92%, 40rem); min-width: 0; }
+.bubble {
+  padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card);
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6;
+}
+.row--user .bubble {
+  max-width: min(92%, 36rem); color: var(--color-accent-ink); border-bottom-right-radius: var(--space-2xs);
+  background: linear-gradient(var(--color-accent), var(--color-accent-deep));
+  box-shadow: inset 0 1px 0 var(--glint);
+}
+.row--bot .bubble { background: var(--surface); border: var(--rule-hair) solid var(--color-rule); border-bottom-left-radius: var(--space-2xs); }
+.bubble--error { background: var(--color-paper-3); color: var(--color-ink); }
+
+/* Signature: the emergency answer is an ink band, never mistaken for a normal reply. */
+.row--bot .bubble--alert {
+  padding: var(--space-md); background: var(--band-bg); color: var(--band-fg);
+  border: 0; border-left: var(--space-2xs) solid var(--color-error); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lift);
+}
+.alert-head { display: flex; align-items: flex-start; gap: var(--space-sm); }
+.alert-badge {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--radius-pill);
+  background: var(--alert-badge); color: var(--color-accent-ink);
+}
+.alert-lead { margin: 0; font: 700 var(--text-xl) / 1.25 var(--font-display); letter-spacing: var(--tracking-display); max-width: none; white-space: pre-wrap; }
+.alert-lead .n119 { font-size: 1.35em; color: var(--band-mark); font-variant-numeric: tabular-nums; }
+.alert-rest { margin-top: var(--space-sm); padding-left: calc(36px + var(--space-sm)); }
+
+/* Disclosures under an answer */
+.details { margin-top: var(--space-2xs); font-size: var(--text-sm); color: var(--color-muted); }
+.details summary { display: flex; align-items: center; gap: var(--space-xs); cursor: pointer; user-select: none; min-height: 32px; list-style: none; }
+.details summary::-webkit-details-marker { display: none; }
+.details summary::before {
+  content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform var(--dur-micro) var(--ease-out);
+}
+.details[open] > summary::before { transform: rotate(45deg); }
+.details summary:hover { color: var(--color-ink); }
+.box {
+  margin-top: var(--space-2xs); padding: var(--space-xs) var(--space-sm); max-height: 14rem; overflow: auto;
+  background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-input);
+  color: var(--color-ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.item { padding: var(--space-2xs) 0; border-bottom: var(--rule-hair) dashed var(--color-rule); }
+.item:last-child { border-bottom: 0; }
+.item code { font-family: var(--font-outlier); font-size: var(--text-xs); color: var(--color-accent); font-weight: 500; }
+
+/* Loading: a quiet status line, not a spinner. */
+.typing { color: var(--color-muted); animation: breathe 1.4s var(--ease-in-out) infinite alternate; }
+@keyframes breathe { from { opacity: 0.45; } to { opacity: 1; } }
+
+/* Composer: a sunken tray */
+.composer { padding: var(--space-sm) var(--space-md) var(--space-xs); padding-bottom: max(var(--space-xs), env(safe-area-inset-bottom)); background: var(--surface); border-top: var(--rule-hair) solid var(--color-rule); }
+.tray { display: flex; align-items: flex-end; gap: var(--space-xs); padding: var(--space-xs); border-radius: var(--radius-card); background: var(--color-paper-3); box-shadow: inset 0 1px 3px var(--tray-shade); }
+.tray textarea {
+  flex: 1; min-width: 0; min-height: 52px; max-height: 9rem; resize: none; padding: var(--space-sm) var(--space-md);
+  font: 400 var(--text-md) / 1.4 var(--font-body); color: var(--color-ink); background: var(--surface);
+  border: var(--rule-hair) solid var(--color-muted); border-radius: var(--radius-input);
+}
+.tray textarea::placeholder { color: var(--color-muted); }
+.fine { margin: var(--space-xs) 0 0; text-align: center; font-size: var(--text-xs); color: var(--color-muted); max-width: none; }
+
+/* The column is always phone-width, so the narrow rules key off the column, not the window. */
+@container (max-width: 30rem) {
+  .brand p, .hint { display: none; }
+  .stack { max-width: 94%; }
+  .alert-rest { padding-left: 0; }
+}
