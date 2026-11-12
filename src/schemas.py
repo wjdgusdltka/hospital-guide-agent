@@ -76,6 +76,12 @@ class VisitMemo(BaseModel):
     background: list[str] = Field(description="나이대, 임신 여부, 기저질환, 복용 중이라고 말한 약 같은 배경. 말한 것만")
 
 
+class SocialReply(BaseModel):
+    """인사·감사·경과 보고에 대한 짧고 자연스러운 답 (의학 판단 없음)."""
+
+    reply: str = Field(description="사용자의 말에 직접 반응하는 1~3문장 존댓말 답변. 응급·119 안내와 질문은 쓰지 않는다")
+
+
 class SymptomSummary(BaseModel):
     """지난 상담을 되짚는 인사말과 이력 제목에 쓸 증상 요약 한 줄."""
 

@@ -154,41 +154,58 @@ def classify(state: State) -> dict:
 def route_after_classify(state: State) -> str:
     """분류 결과로 다음 노드를 고른다."""
     cat = state["scope"]["category"]
-    if cat == "chitchat":  # 인사·감사·작별: 짧게 맞받는다. 단, 분류가 틀렸을 때를 대비해 증상이 섞였을 수 있으면 정상 점검으로 보낸다
-        return "chitchat" if _is_pure_chitchat(state["question"]) else "triage"
+    # 인사·감사·작별·경과 보고: 짧게 맞받는다. 단, 분류가 틀렸을 때를 대비해 '지금' 증상이 섞였을 수 있으면 정상 점검으로 보낸다
+    if cat == "chitchat":
+        return "chitchat" if _no_current_symptom(state["question"]) else "triage"
+    if cat == "checkin_ok":  # 지난 상담 안부·경과에 답함 ('나아졌어요', '시킨 대로 응급실 가서 꿰매고 왔어요, 고마워요')
+        if not _no_current_symptom(state["question"], limit=160):
+            return "triage"
+        return "checkin" if state.get("last_kind") == "greeting" else "chitchat"
     if cat in ("out_of_scope", "unavailable"):
         return "refuse"
-    if cat == "checkin_ok" and state.get("last_kind") == "greeting":  # 안부 인사에 '나아졌어요'라고만 답함
-        return "checkin"
     # 응급실 목록 요청, 지역 답변을 기다리는 중의 답, 응급 안내 뒤의 대화는 모두 locate 에서 먼저 처리한다
     if cat == "er_lookup" or (cat == "symptom" and (state.get("emergency_active") or state.get("awaiting_location"))):
         return "locate"
     return "triage"
 
 
-# 증상·몸 상태를 시사하는 말. 하나라도 있으면 인사로 처리하지 않는다(넓게 잡는다: 잘못 걸려도 정상 점검이 한 번 더 도는 것뿐이라 안전한 방향)
-_SYMPTOM_HINT = re.compile(
-    r"아프|아파|아픈|통증|쑤|저리|저려|열이|열나|열도|열은|토하|토했|구토|메스|어지|숨|호흡|피가|피나|피를|출혈|두통|머리|배가|복통|가슴|"
-    r"기침|설사|변비|붓|부었|마비|경련|의식|쓰러|답답|가려|발진|상처|다쳤|넘어|찢어|화상|임신|아이가|아기|증상|병원|응급|119|약을|먹었")
+# '지금 있는' 증상·몸 상태를 시사하는 말. 하나라도 있으면 인사·경과 보고로 처리하지 않고 정상 점검으로 보낸다
+# (넓게 잡는다: 잘못 걸려도 정상 점검이 한 번 더 도는 것뿐이라 안전한 방향). '응급실', '병원', '상처', '꿰맸' 처럼
+# 지난 상담을 되짚는 말은 일부러 넣지 않았다(경과 보고에 자연스럽게 나오는 말이라서).
+_CURRENT_SYMPTOM = re.compile(
+    r"아프|아파|아픈|통증|쑤시|쑤셔|저리|저려|열이|열나|열도|열은|토하|토했|구토|메스|어지|숨|호흡|피가|피나|피를|출혈|두통|복통|"
+    r"머리가|배가|가슴이|가슴을|기침|설사|변비|붓|부었|부어|마비|경련|의식|쓰러|답답|가려|발진|임신|아이가|아기가|"
+    r"또\s*다|다시\s*(생|아|열|토|피)|악화|심해|더\s*아")
 
 
-def _is_pure_chitchat(question: str) -> bool:
-    """인사·감사로만 보이는가: 짧고(40자 이내) 증상을 시사하는 말과 누가 봐도 응급인 표현이 없을 때만 true.
+def _no_current_symptom(question: str, limit: int = 60) -> bool:
+    """인사·감사·경과 보고로만 보이는가: 길지 않고(limit 자 이내) '지금 있는' 증상을 시사하는 말과 누가 봐도 응급인 표현이 없을 때만 true.
     분류기가 증상 섞인 말을 인사로 잘못 분류해도 응급 점검을 건너뛰지 않게 하는 안전망."""
     q = question.strip()
-    return len(q) <= 40 and not _SYMPTOM_HINT.search(q) and not tools.hard_red_flags(f"사용자: {q}")
+    return len(q) <= limit and not _CURRENT_SYMPTOM.search(q) and not tools.hard_red_flags(f"사용자: {q}")
+
+
+def _social_answer(state: State, fallback: str) -> str:
+    """사용자의 말을 받아서 짧게 답한다(빠른 모델). 모델이 실패하면 고정 문구로 대신한다. 안전 문구는 코드가 붙인다."""
+    try:
+        reply = tools.reply_social(_history_text(state), state["question"])
+    except Exception:
+        log.warning("social reply failed; using the canned reply", exc_info=True)
+        reply = ""
+    return answers.compose_social(reply, state.get("last_kind", ""), state["question"]) if reply else fallback
 
 
 def chitchat(state: State) -> dict:
-    """인사·감사·작별에 짧게 답한다. 정보 요청이 아니라 점검은 하지 않고, last_kind 는 그대로 둔다(응급 안내 뒤의 지역 질문 등이 이어지도록)."""
-    return {"answer": answers.compose_chitchat(state["question"], state.get("last_kind", "")),
-            "trace": _step(state, "chitchat_reply", state["question"], "인사·감사 -> 점검 없이 짧게 답함")}
+    """인사·감사·작별·경과 보고에 짧게 답한다. 정보 요청이 아니라 점검은 하지 않고, last_kind 는 그대로 둔다(응급 안내 뒤의 지역 질문 등이 이어지도록)."""
+    fallback = answers.compose_chitchat(state["question"], state.get("last_kind", ""))
+    return {"answer": _social_answer(state, fallback),
+            "trace": _step(state, "chitchat_reply", state["question"], "인사·감사·경과 보고 -> 점검 없이 짧게 답함")}
 
 
 def checkin(state: State) -> dict:
-    """안부 인사에 '나아졌어요/진료 받았어요'라고만 답했을 때: 새 증상이 없으니 점검 없이 짧게 맺고 언제든 다시 말하라고 안내한다."""
-    return {"answer": answers.CHECKIN_REPLY, "last_kind": "answer",
-            "trace": _step(state, "checkin_reply", state["question"], "새 증상 없음 -> 안내만")}
+    """안부 인사에 '나아졌어요/진료 받았어요/잘 해결됐어요'라고 답했을 때: 새 증상이 없으니 점검 없이, 사용자의 말을 받아 짧게 맺고 언제든 다시 말하라고 안내한다."""
+    return {"answer": _social_answer(state, answers.CHECKIN_REPLY), "last_kind": "answer",
+            "trace": _step(state, "checkin_reply", state["question"], "새 증상 없음 -> 점검 없이 짧게 답함")}
 
 
 def refuse(state: State) -> dict:

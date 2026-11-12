@@ -40,6 +40,18 @@ _BYE = re.compile(r"안녕히|잘\s*있|이만|나갈게|들어갈게|끝낼|종
 _HELLO = re.compile(r"안녕|하이|hello|\bhi\b|반가|처음")
 
 
+def compose_social(reply: str, last_kind: str = "", message: str = "") -> str:
+    """모델이 만든 짧은 맞장구(reply) 뒤에 안전 문구를 코드로 덧붙인다. 의학 판단은 모델이 하지 않고, 119·재방문 안내는 항상 여기서 붙는다."""
+    reply = reply.strip()
+    if last_kind == "emergency":
+        tail = "안내드린 응급실 이용을 아직 못 하셨다면 꼭 이용해 주세요. 증상이 갑자기 심해지면 기다리지 말고 바로 119에 연락하세요."
+    elif _HELLO.search(message) and not _THANKS.search(message):  # 첫 인사에는 '다시 생기면'이 어색하다
+        tail = "불편한 증상이 있으시면 말씀해 주세요. 응급이 의심되면 바로 119에 연락하세요."
+    else:
+        tail = "증상이 다시 생기거나 걱정되는 점이 있으면 언제든 다시 말씀해 주세요. 응급이 의심되면 바로 119에 연락하세요."
+    return f"{reply}\n\n{tail}"
+
+
 def compose_chitchat(message: str, last_kind: str = "") -> str:
     """인사·감사·작별에 짧고 따뜻하게 답한다(LLM 없이 고정 문구). 응급 안내 직후라면 안내를 한 번 더 상기시킨다.
 

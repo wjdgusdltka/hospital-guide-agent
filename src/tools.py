@@ -13,9 +13,9 @@ from . import config
 from .annex import annex_prompt_text, match_item_ids
 from .llm_chain import structured_chain
 from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, EMERGENCY_REPLY_SYSTEM, LOCATION_SYSTEM,
-                      MEMO_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM, SUMMARY_SYSTEM)
+                      MEMO_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM, SOCIAL_SYSTEM, SUMMARY_SYSTEM)
 from .schemas import (Assessment, DepartmentRec, EmergencyReply, LocationExtract, RedFlagResult, RelatedConditions,
-                      SymptomSummary, VisitMemo)
+                      SocialReply, SymptomSummary, VisitMemo)
 
 
 # ------------------------------------------------------------ check_red_flags
@@ -120,6 +120,17 @@ def recommend_department(history_text: str, docs: list[dict]) -> DepartmentRec:
 def make_visit_memo(history_text: str) -> VisitMemo:
     """대화에서 사용자가 말한 증상·기간·배경만 뽑아 병원에서 보여 줄 진료 메모를 만든다 (빠른 모델, 진단 없음)."""
     return structured_chain("memo", VisitMemo, MEMO_SYSTEM, fast=True).invoke({"input": history_text})
+
+
+# ------------------------------------------------------------- reply_social
+def reply_social(history_text: str, message: str) -> str:
+    """인사·감사·경과 보고에 사용자의 말을 받아서 짧게 답한다(빠른 모델, 의학 판단 없음). 실패하거나 비면 빈 문자열.
+
+    안전 문구(119·재방문 안내)는 여기서 만들지 않고 answers.compose_social 이 코드로 붙인다.
+    """
+    payload = f"[대화]\n{history_text}\n\n[사용자의 새 말]\n{message}"
+    reply = structured_chain("social", SocialReply, SOCIAL_SYSTEM, fast=True).invoke({"input": payload}).reply.strip()
+    return reply if 1 <= len(reply) <= 300 else ""
 
 
 # --------------------------------------------------------- summarize_symptom
