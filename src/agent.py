@@ -529,6 +529,16 @@ _GRAPH = None
 _GRAPH_LOCK = threading.Lock()  # 그래프(와 그 체크포인터)는 프로세스에 하나만 있어야 세션이 유지된다
 
 
+def get_graph():
+    """컴파일된 그래프를 한 번만 만들어 돌려준다(서버 시작 때 미리 만들어 두는 용도. run_agent 도 같은 그래프를 쓴다)."""
+    global _GRAPH
+    if _GRAPH is None:
+        with _GRAPH_LOCK:
+            if _GRAPH is None:
+                _GRAPH = build_graph()
+    return _GRAPH
+
+
 def run_agent(question: str, session_id: str | None = None, user_id: str | None = None) -> dict:
     """질문 하나를 처리해 {answer, contexts, trace} 를 돌려준다. session_id 가 같으면 같은 대화로 이어진다.
 

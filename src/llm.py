@@ -7,6 +7,7 @@ Order of defense for one call:
      instead of spending several seconds of retries on it every time (a daily token limit does not recover soon).
 """
 import contextvars
+import functools
 import logging
 import threading
 import time
@@ -36,18 +37,16 @@ def _on_cooldown(model_id: str) -> bool:
 
 
 def _needs_probe(model_id: str) -> bool:
-    """이 모델이 하루 한도로 쿨다운에 들어갔다가 막 풀린 상태인가? 그렇다면 재시도 없이 한 번만 찔러 본다(아래 CooldownFallback)."""
+    """이 모델이 스로틀링(하루 한도든 일반 스로틀링이든)으로 쿨다운에 들어갔다가 막 풀린 상태인가?
+    그렇다면 재시도 없이 한 번만 찔러 본다(아래 CooldownFallback). 쿨다운 기록은 _trip 만 만든다."""
     with _LOCK:
-        entry = _COOLDOWN.get(model_id)
-        return bool(entry and entry[1])
+        return model_id in _COOLDOWN
 
 
-def _clear_daily(model_id: str) -> None:
-    """한도가 풀려 호출에 성공했으면 '하루 한도였던 모델' 표시를 지워 다시 평소 재시도로 돌아간다."""
+def _clear_tripped(model_id: str) -> None:
+    """스로틀링이 풀려 호출에 성공했으면 쿨다운 기록을 지워 다시 평소 재시도 설정으로 돌아간다."""
     with _LOCK:
-        entry = _COOLDOWN.get(model_id)
-        if entry and entry[1]:
-            del _COOLDOWN[model_id]
+        _COOLDOWN.pop(model_id, None)
 
 
 def _is_throttle(exc: Exception) -> bool:
@@ -108,8 +107,14 @@ def _note_model(model_id: str) -> None:
 
 
 # ------------------------------------------------------------------ models
+@functools.lru_cache(maxsize=None)
 def build_model(model_id: str, attempts: int | None = None) -> ChatBedrockConverse:
-    """One Bedrock model with adaptive retry/backoff for throttling. attempts=1 이면 재시도 없이 한 번만 호출한다."""
+    """One Bedrock model with adaptive retry/backoff for throttling. attempts=1 이면 재시도 없이 한 번만 호출한다.
+
+    (model_id, attempts) 마다 하나를 만들어 모든 체인이 공유한다. 체인(분류·점검·되묻기·메모…)마다 따로 만들면
+    각자 boto 클라이언트와 연결을 처음 열 때마다 비용이 들어 첫 요청이 느려지고, 서버 시작 때 미리 데워도 소용이 없다.
+    모델 객체는 상태가 없고 boto 클라이언트는 스레드 안전이라 공유해도 된다.
+    """
     return ChatBedrockConverse(
         model_id=model_id,
         region_name=config.AWS_REGION,
@@ -127,9 +132,9 @@ class CooldownFallback(Runnable):
 
     If every model is on cooldown it still tries them all as a last resort (the limit may have been lifted).
 
-    하루 한도로 쉬던 모델이 쿨다운에서 풀린 뒤 처음 불릴 때는 `probes`(재시도 1번짜리 같은 모델)로 한 번만 찔러 본다.
-    한도가 그대로면 재시도 대기 없이 바로 다음 모델로 넘어가고, 풀렸으면 성공하면서 평소 재시도 설정으로 돌아간다.
-    (5분마다 풀린 첫 요청이 한도에 걸린 모델의 재시도를 기다리느라 느려지던 문제를 막는다.)
+    스로틀링(하루 한도·일반 스로틀링)으로 쉬던 모델이 쿨다운에서 풀린 뒤 처음 불릴 때는 `probes`(재시도 1번짜리 같은 모델)로 한 번만 찔러 본다.
+    아직 막혀 있으면 재시도 대기 없이 바로 다음 모델로 넘어가고, 풀렸으면 성공하면서 평소 재시도 설정으로 돌아간다.
+    (쿨다운이 풀릴 때마다 첫 요청이 막힌 모델의 재시도를 기다리느라 몇 초씩 느려지던 문제를 막는다.)
     """
 
     def __init__(self, ids: list[str], runnables: list[Runnable], probes: list[Runnable] | None = None):
@@ -147,8 +152,8 @@ class CooldownFallback(Runnable):
                 if result is None:  # 구조화 출력을 해석하지 못해 None 이 온 경우도 실패로 보고 다음 모델로 넘어간다
                     raise ValueError("model returned no structured output")
                 if probing:
-                    _clear_daily(self.ids[i])
-                    log.info("model %s is back after a daily limit", self.ids[i])
+                    _clear_tripped(self.ids[i])
+                    log.info("model %s is back after throttling", self.ids[i])
                 _note_model(self.ids[i])
                 return result
             except FALLBACK_EXCEPTIONS as e:

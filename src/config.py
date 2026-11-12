@@ -8,21 +8,23 @@ load_dotenv()
 # 사용 리전: us-west-2 (오레곤). 아래 모델 id 는 이 리전에서 쓸 수 있는 것들이다(us.* 는 미국 추론 프로파일, global.* 는 글로벌 프로파일).
 # 리전을 바꾸면 이 목록도 그 리전에서 쓸 수 있는 id 로 바꿔야 한다. BEDROCK_MODELS / BEDROCK_FAST_MODELS 로 덮어쓸 수 있다.
 # Fallback order: first = primary. us.* 와 global.* 는 한도가 따로 잡히는 경우가 있어 번갈아 둔다.
+# global.* 를 먼저 둔 이유(2026-11-12 측정): us.anthropic.claude-sonnet-4-6 는 같은 호출이 4번 중 2번 스로틀링 오류가 나서
+# 재시도·대기 뒤에야 다음 모델로 넘어가 응급 점검이 2초에서 10초까지 흔들렸고, global.anthropic.claude-sonnet-4-6 는 4번 모두 1.3초였다.
 # 안전 판단(응급 점검 등)에 쓰는 메인 체인은 Anthropic 모델만 둔다. Nova 계열은 구조화 출력 품질을 검증하지 않아 넣지 않았다.
 DEFAULT_MODELS = [
-    "us.anthropic.claude-sonnet-4-6",
     "global.anthropic.claude-sonnet-4-6",
-    "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "us.anthropic.claude-sonnet-4-6",
     "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
 ]
 
 # Light steps (scope check, query translation, region extraction) use a faster/cheaper model first.
 DEFAULT_FAST_MODELS = [
-    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "us.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "global.anthropic.claude-sonnet-4-6",
 ]
 
 # Every model the account can use in this region (given by the user). `python -m src.check_quota` probes all of them.
@@ -66,3 +68,4 @@ ANNEX1_VERSION = "보건복지부령 제1189호(2026-07-13 개정), 2026-08-14 �
 
 # Set to 1 to disable fallbacks (use for evaluation runs so round1/round2 stay comparable).
 DISABLE_FALLBACK = os.getenv("DISABLE_FALLBACK", "0") == "1"
+WARMUP = os.getenv("WARMUP", "1") == "1"  # 서버 시작 때 백그라운드로 첫 요청의 초기화 비용을 미리 치른다(0 이면 끔)

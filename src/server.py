@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from . import config  # noqa: F401  (loads .env)
-from . import memory
+from . import memory, warmup
 from .rag.index_check import NOT_READY_MESSAGE, ensure_index, index_status
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -35,6 +35,8 @@ async def lifespan(_: FastAPI):
             print(NOT_READY_MESSAGE.format(reason=st["reason"]))
     else:
         ensure_index()
+        if config.WARMUP:  # 첫 질문이 초기화 비용을 치르지 않도록 백그라운드로 미리 데운다
+            warmup.start()
     yield
 
 
