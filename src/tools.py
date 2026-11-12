@@ -10,6 +10,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from . import config
+from .annex import annex_prompt_text
 from .llm_chain import structured_chain
 from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, EMERGENCY_REPLY_SYSTEM, LOCATION_SYSTEM,
                       RELATED_SYSTEM, REDFLAG_SYSTEM)
@@ -17,38 +18,25 @@ from .schemas import (Assessment, DepartmentRec, EmergencyReply, LocationExtract
 
 
 # ------------------------------------------------------------ check_red_flags
-def _load_annex() -> tuple[str, str]:
-    """별표 1 파일에서 '응급증상'(A)과 '준하는 증상'(B) 목록을 읽어 프롬프트용 문자열로 만든다."""
-    a, b, cur = [], [], None
-    for line in config.ANNEX1_PATH.read_text(encoding="utf-8").splitlines():
-        if line.startswith("## A."):
-            cur = a
-        elif line.startswith("## B."):
-            cur = b
-        elif line.startswith("### ") and cur is not None:
-            cur.append(f"[{line[4:].strip()}]")
-        elif line.startswith("- ") and cur is not None:
-            cur.append(line)
-    return "\n".join(a), "\n".join(b)
-
-
 # LLM 판단 앞에 두는 안전망: 누가 봐도 응급인 표현은 모델 판단과 무관하게 응급으로 본다.
+# 라벨은 별표 1 공식 표기이고, 주석의 ID 는 data/sources/emergency_symptoms_annex1.md 의 항목 ID 다.
 _HARD_FLAGS = [
-    (re.compile(r"의식(이|을)?\s*(없|잃|흐려)|쓰러[졌지져]|정신을\s*잃"), "급성 의식장애"),
-    (re.compile(r"피를\s*토|토혈|각혈|피를\s*쏟"), "계속되는 각혈·토혈 등 출혈"),
-    (re.compile(r"숨(을|이)?\s*(못|안)\s*쉬|호흡\s*(정지|곤란이\s*심)"), "급성 호흡곤란"),
-    (re.compile(r"경련"), "경련성 장애"),
-    (re.compile(r"한쪽\s*(팔|다리|얼굴)[^.\n]{0,8}(힘이\s*(빠|없)|마비)|말이\s*(어눌|안\s*나)"), "급성 신경학적 이상"),
-    (re.compile(r"심정지|심폐소생"), "심폐소생술이 필요한 증상"),
+    (re.compile(r"의식(이|을)?\s*(없|잃|흐려)|쓰러[졌지져]|정신을\s*잃"), "급성의식장애"),  # A-가-1
+    (re.compile(r"피를\s*토|토혈|각혈|피를\s*쏟"), "계속되는 각혈"),  # A-마-1 (토혈은 A-마-3 급성 위장관 출혈도 해당)
+    (re.compile(r"숨(을|이)?\s*(못|안)\s*쉬|호흡\s*(정지|곤란이\s*심)"), "급성호흡곤란"),  # A-나-2
+    (re.compile(r"경련"), "급성신경학적 이상"),  # A-가-2
+    (re.compile(r"(아이|아기|소아|\d+\s*살|개월)[^.\n]{0,20}경련|경련[^.\n]{0,20}(아이|아기)"), "소아경련성 장애"),  # A-아-1
+    (re.compile(r"한쪽\s*(팔|다리|얼굴)[^.\n]{0,8}(힘이\s*(빠|없)|마비)|말이\s*(어눌|안\s*나)"), "급성신경학적 이상"),  # A-가-2
+    (re.compile(r"심정지|심폐소생"), "심폐소생술이 필요한 증상"),  # A-나-1
 ]
 
 
 def check_red_flags(history_text: str) -> RedFlagResult:
     """대화 전체에서 응급 신호를 점검한다: 1) 확실한 표현은 규칙으로 즉시 응급 2) 나머지는 LLM이 별표 1에 비춰 판단."""
-    for pattern, label in _HARD_FLAGS:
-        if pattern.search(history_text):
-            return RedFlagResult(emergency=True, matched_items=[label], reason="입력 내용에 응급을 강하게 시사하는 표현이 있어요.")
-    annex_a, annex_b = _load_annex()
+    hard = list(dict.fromkeys(label for pattern, label in _HARD_FLAGS if pattern.search(history_text)))  # 맞은 규칙 전부
+    if hard:
+        return RedFlagResult(emergency=True, matched_items=hard, reason="입력 내용에 응급을 강하게 시사하는 표현이 있어요.")
+    annex_a, annex_b = annex_prompt_text()
     system = REDFLAG_SYSTEM.format(annex_a=annex_a, annex_b=annex_b)
     return structured_chain("red_flags", RedFlagResult, system).invoke({"input": history_text})
 

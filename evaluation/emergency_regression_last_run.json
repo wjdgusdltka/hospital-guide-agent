@@ -1,0 +1,523 @@
+{
+ "summary": {
+  "run_date": "2026-11-12",
+  "law_version": "보건복지부령 제1189호(2026-07-13 개정), 2026-08-14 시행",
+  "cases": 32,
+  "passed": 32,
+  "known_gaps": 0,
+  "failed": [],
+  "item_match": "23/23"
+ },
+ "results": [
+  {
+   "id": "E01",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-가-1"
+   ],
+   "matched_item_ids": [
+    "A-가-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E02",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-가-2"
+   ],
+   "matched_item_ids": [
+    "A-가-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E03",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-가-3"
+   ],
+   "matched_item_ids": [
+    "A-가-3"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E04",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-나-1"
+   ],
+   "matched_item_ids": [
+    "A-나-2",
+    "A-나-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E05",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-나-2"
+   ],
+   "matched_item_ids": [
+    "A-나-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E06",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-나-3"
+   ],
+   "matched_item_ids": [
+    "A-나-3",
+    "A-나-5"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E07",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-나-4",
+    "A-나-5"
+   ],
+   "matched_item_ids": [
+    "A-나-4",
+    "A-나-5",
+    "A-가-1",
+    "B-가-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E08",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-다-1"
+   ],
+   "matched_item_ids": [
+    "A-다-1",
+    "A-다-3",
+    "A-가-1",
+    "B-가-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E09",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-다-2"
+   ],
+   "matched_item_ids": [
+    "A-다-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E10",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-라-1"
+   ],
+   "matched_item_ids": [
+    "A-라-1",
+    "B-다-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E11",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-라-2"
+   ],
+   "matched_item_ids": [
+    "A-라-2",
+    "A-라-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E12",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-라-3"
+   ],
+   "matched_item_ids": [
+    "A-라-3",
+    "A-라-7",
+    "A-마-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E13",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-라-4"
+   ],
+   "matched_item_ids": [
+    "A-라-4"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E14",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-마-1"
+   ],
+   "matched_item_ids": [
+    "A-마-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E15",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-마-2"
+   ],
+   "matched_item_ids": [
+    "A-마-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E16",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-마-3"
+   ],
+   "matched_item_ids": [
+    "A-마-3",
+    "A-마-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E17",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-바-1"
+   ],
+   "matched_item_ids": [
+    "A-바-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E18",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-바-2"
+   ],
+   "matched_item_ids": [
+    "A-바-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E19",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-사-1"
+   ],
+   "matched_item_ids": [
+    "A-사-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E20",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-아-1"
+   ],
+   "matched_item_ids": [
+    "A-가-2",
+    "A-아-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E21",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-자-1"
+   ],
+   "matched_item_ids": [
+    "A-자-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E22",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "B-마-2"
+   ],
+   "matched_item_ids": [
+    "B-마-2"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E23",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "B-바-1"
+   ],
+   "matched_item_ids": [
+    "B-바-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E24",
+   "basis": "policy",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [
+    "B-바-1",
+    "B-다-2"
+   ],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "E25",
+   "basis": "policy",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [
+    "A-다-3",
+    "A-가-1",
+    "B-가-2"
+   ],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "E26",
+   "basis": "policy",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [
+    "A-나-2"
+   ],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N01",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N02",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N03",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "B-다-5"
+   ],
+   "matched_item_ids": [],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N04",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "B-가-2"
+   ],
+   "matched_item_ids": [
+    "B-가-2"
+   ],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N05",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N06",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": true,
+   "expected_item_ids": [
+    "B-나-1"
+   ],
+   "matched_item_ids": [
+    "A-나-2"
+   ],
+   "item_match": null,
+   "error": null
+  }
+ ]
+}

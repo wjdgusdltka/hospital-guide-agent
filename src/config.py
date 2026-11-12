@@ -41,6 +41,8 @@ COLLECTION_NAME = "hospital_guide"
 SOURCES_DIR = ROOT_DIR / "data" / "sources"  # committed source data
 MEDLINEPLUS_DATE = os.getenv("MEDLINEPLUS_DATE", "2026-11-10")  # pinned so evaluations are reproducible
 ANNEX1_PATH = SOURCES_DIR / "emergency_symptoms_annex1.md"
+# 응급 판단 기준(별표 1)의 법령 기준. 파일의 '기준 정보'와 같아야 하며, 인덱스 청크 메타데이터와 평가 케이스에 기록된다.
+ANNEX1_VERSION = "보건복지부령 제1189호(2026-07-13 개정), 2026-08-14 시행"
 
 # Set to 1 to disable fallbacks (use for evaluation runs so round1/round2 stay comparable).
 DISABLE_FALLBACK = os.getenv("DISABLE_FALLBACK", "0") == "1"

@@ -14,9 +14,10 @@ from pathlib import Path
 from langchain_core.documents import Document
 
 from .. import config
+from ..annex import load_annex_items
 
 MAX_CHUNK_CHARS = 1800
-ANNEX1_URL = "https://www.amc.seoul.kr/asan/emergencytreatguide/emergencysymptom/emergencySymptom.do"
+ANNEX1_URL = "https://www.law.go.kr/법령/응급의료에관한법률시행규칙"  # 국가법령정보센터
 
 
 # ---------------------------------------------------------------- MedlinePlus
@@ -94,25 +95,16 @@ def load_medlineplus(zip_path: Path) -> list[Document]:
 
 
 # --------------------------------------------------------------------- Annex 1
-def load_annex1(path: Path = config.ANNEX1_PATH) -> list[Document]:
-    """One chunk per category under '## A. 응급증상' / '## B. 응급증상에 준하는 증상'."""
-    kind = None
-    category = None
-    items: dict[tuple[str, str], list[str]] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("## A."):
-            kind = "응급증상"
-        elif line.startswith("## B."):
-            kind = "응급증상에 준하는 증상"
-        elif line.startswith("### ") and kind:
-            category = line[4:].strip()
-        elif line.startswith("- ") and kind and category:
-            items.setdefault((kind, category), []).append(line[2:].strip())
+def load_annex1() -> list[Document]:
+    """별표 1 을 (구분, 범주)별 청크 하나씩으로 만든다. 항목마다 ID 를 붙이고 법령 기준(개정·시행일)을 메타데이터에 남긴다."""
+    groups: dict[tuple[str, str], list] = {}
+    for it in load_annex_items():  # 파서는 src/annex.py 한 곳에만 있다
+        groups.setdefault((it.kind, it.category), []).append(it)
     docs = []
-    for n, ((kind, category), lst) in enumerate(items.items()):
+    for n, ((kind, category), items) in enumerate(groups.items()):
         text = (
-            f"응급의료에 관한 법률 시행규칙 [별표 1] {kind} - {category}\n"
-            + "\n".join(f"- {x}" for x in lst)
+            f"응급의료에 관한 법률 시행규칙 [별표 1] {kind} - {category} ({config.ANNEX1_VERSION})\n"
+            + "\n".join(f"- [{it.id}] {it.text}" for it in items)
         )
         docs.append(
             Document(
@@ -125,6 +117,7 @@ def load_annex1(path: Path = config.ANNEX1_PATH) -> list[Document]:
                     "groups": "",
                     "is_symptom": False,
                     "chunk": 0,
+                    "law_version": config.ANNEX1_VERSION,
                 },
             )
         )

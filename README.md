@@ -73,7 +73,7 @@ pip install -r requirements.txt
 python -m src.rag.build_index
 ```
 
-`done. total in collection: 1740` 이 출력되면 성공입니다. 처음부터 다시 만들려면 `--rebuild` 를 붙입니다.
+`done. total in collection: 1741` 이 출력되면 성공입니다. 처음부터 다시 만들려면 `--rebuild` 를 붙입니다.
 
 **4. 서버 실행**
 
@@ -108,7 +108,7 @@ uvicorn src.server:app --reload
 
 ### 검색 인덱스(Chroma) 참고
 
-- 구성: MedlinePlus 건강 주제(영문, 2026-11-10 기준 1,725 청크) + 응급증상 목록(별표 1, 15 청크). 임베딩은 Amazon Titan Text Embeddings V2(512차원).
+- 구성: MedlinePlus 건강 주제(영문, 2026-11-10 기준 1,725 청크) + 응급증상 목록(별표 1, 16 청크, 항목 ID 포함). 임베딩은 Amazon Titan Text Embeddings V2(512차원).
 - 원본은 `data/sources/` 에 포함되어 있습니다(MedlinePlus는 최근 6개 날짜 파일만 공개하므로 압축 원본을 함께 보관). 인덱스(`data/chroma/`, 약 24MB)는 위 3번으로 만들며 git에서 제외됩니다.
 - `data/chroma/chroma.sqlite3` 는 VS Code의 SQLite 확장으로 열어 볼 수 있습니다. 문서 내용과 메타데이터는 `embedding_metadata`, 청크 목록은 `embeddings` 테이블에서 확인합니다.
 
@@ -129,6 +129,17 @@ uvicorn src.server:app --reload
 - 2차 (Day 10 개선 후): - / 20 통과
 - 개선폭: - 건 (주요 개선 사항: -)
 
+### 응급 판정 회귀 테스트
+
+별표 1 항목 ID 와 기준일에 연결된 응급 판정 전용 케이스([evaluation/emergency_regression.csv](evaluation/emergency_regression.csv), 32건)를 검색 방식이나 프롬프트를 바꿀 때마다 돌려 안전 기준이 유지되는지 확인합니다. 검색(RAG)을 거치지 않고 `check_red_flags` 만 호출해 비용이 작습니다.
+
+```bash
+python evaluation/run_emergency_regression.py
+```
+
+- 케이스 구성: 별표 1 제1호 응급증상 모든 범주(`basis=law`), 별표 밖 서비스 정책(`basis=policy`), 응급이 아니어야 하는 대조(`basis=negative`)
+- 마지막 실행(2026-11-12, 기준 보건복지부령 제1189호): 32/32 통과, 별표 항목 인용 23/23 일치. 결과는 `evaluation/emergency_regression_last_run.json`.
+
 ## 트라이앤에러 회고
 
 진행 중인 기록입니다. 평가 후 보강합니다.
@@ -145,7 +156,7 @@ uvicorn src.server:app --reload
 **남은 한계 · 향후 개선 방향**
 - 증상에서 진료과로 이어지는 공식 매핑 자료가 없어 진료과 추천 근거가 약합니다(채점도 정답 하나가 아닌 허용 집합 방식).
 - 영문 자료를 한국어로 옮겨 쓰므로 번역 오류 가능성이 있습니다.
-- 별표 1은 병원 안내 페이지를 출처로 정리했으며 공식 현행본과 대조하지 않았습니다.
+- 별표 1은 공식 PDF(보건복지부령 제1189호, 2026-08-14 시행)와 항목별로 대조해 확인했습니다. 법령이 개정되면 `data/sources/emergency_symptoms_annex1.md` 와 응급 회귀 케이스를 함께 갱신해야 합니다.
 - 의학적 정확성은 전문가 검증을 받지 않았습니다.
 - 향후: 하이브리드 검색·리랭킹, 한국어 의학 자료 추가.
 
@@ -167,7 +178,7 @@ uvicorn src.server:app --reload
 
 ## 데이터 출처와 이용 조건
 
-- **응급증상 목록:** 「응급의료에 관한 법률 시행규칙」 [별표 1] 항목. 서울아산병원 안내 페이지를 출처로 정리했습니다(수집일은 파일에 기재).
+- **응급증상 목록:** 「응급의료에 관한 법률 시행규칙」 [별표 1] 항목. 공식 법령(국가법령정보센터 PDF, **보건복지부령 제1189호, 2026-07-13 개정, 2026-08-14 시행**)을 기준으로 하며, 확인일(2026-11-12)과 항목 ID는 `data/sources/emergency_symptoms_annex1.md` 에 있습니다. 별표 1에 없는 서비스의 보수적 정책(임신 출혈, 고령·기저질환, '모르겠다' 답변)은 같은 파일에서 법령과 구분해 표시합니다.
 - **MedlinePlus 건강 주제:** 미국 국립의학도서관(NLM)의 [MedlinePlus.gov](https://medlineplus.gov/) 건강 주제 요약(영문). 출처: MedlinePlus, National Library of Medicine. 이 프로젝트는 NLM의 보증이나 후원을 받지 않았습니다.
 - **응급의료기관 목록:** 국립중앙의료원 응급의료정보 조회 서비스(공공데이터포털).
 

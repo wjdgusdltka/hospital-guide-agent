@@ -41,6 +41,10 @@ def main() -> None:
     print(f"documents (chunks): {len(docs)}  | source: {zip_path.name}")
 
     vs = get_vectorstore()
+    # 별표 1 청크는 법령 개정이나 파일 수정에 맞춰 항상 새로 만든다(16개라 비용이 거의 없음). MedlinePlus 는 이미 있는 것은 건너뛴다.
+    stale = [i for i in vs.get(include=[])["ids"] if i.startswith("annex1-")]
+    if stale:
+        vs.delete(ids=stale)
     existing = set(vs.get(include=[])["ids"])
     todo = [d for d in docs if d.metadata["doc_id"] not in existing]
     print(f"already indexed: {len(existing)}  | to embed: {len(todo)}")
