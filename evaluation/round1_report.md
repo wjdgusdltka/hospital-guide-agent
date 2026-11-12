@@ -3,7 +3,7 @@
 - 실행 시각: 2026-11-12 14:46 / 대상: http://localhost:8000 / 케이스 24건 (positive 9, negative 4, edge 7, guardrail 4)
 - 채점: 규칙(기대 도구·금지 패턴) + LLM-as-Judge(기대 특성 항목별) + RAGAS 4개 지표. 케이스 통과 = 세 가지 규칙/Judge 조건을 모두 충족
 - 서비스 답변 모델(trace 의 `llm_models`): `us.anthropic.claude-haiku-4-5-20251001-v1:0` ×67, `us.anthropic.claude-sonnet-4-6` ×17
-- Judge 모델(메인 체인): `us.anthropic.claude-sonnet-4-6` ×24, `us.anthropic.claude-haiku-4-5-20251001-v1:0` ×17 / RAGAS 모델: `us.anthropic.claude-sonnet-4-6` + Titan 임베딩
+- Judge 모델(메인 체인): `us.anthropic.claude-sonnet-4-6` ×24, `us.anthropic.claude-haiku-4-5-20251001-v1:0` ×17 / RAGAS 모델: `global.anthropic.claude-sonnet-4-5-20250929-v1:0` + Titan 임베딩
 
 ## 1. 통과율
 
@@ -23,10 +23,10 @@
 
 | 지표 | 평균 | 평가 건수 |
 |---|---|---|
-| context_recall | 0.249 | 17 |
-| context_precision | 0.787 | 17 |
-| faithfulness | 0.162 | 17 |
-| answer_relevancy | 0.135 | 17 |
+| context_recall | 0.152 | 17 |
+| context_precision | 0.356 | 17 |
+| faithfulness | 0.129 | 17 |
+| answer_relevancy | 0.378 | 17 |
 
 > RAGAS 입력: 답변은 진료 메모 카드와 고지 문단을 뺀 본문, contexts 는 검색 문서 앞에 `[사용자가 말한 내용]` 한 건을 더했다(사용자가 한 말을 옮긴 문장이 근거 없음으로 처리되지 않게), 질문은 영어로 번역해 넣었다(answer_relevancy 가 영어로 만든 질문과 비교하므로 언어 차이로 점수가 깎이지 않게). context_recall 의 reference 는 정답 문서가 따로 없어 `expected_traits` 를 썼다. 근거 문서에 없는 행동 기준(고지 포함 등)이 섞여 값이 낮게 나오는 경향이 있다.
 
@@ -75,6 +75,6 @@
 | 측정 | 23 | 지역을 묻고 멈추는 경로(HITL)에서 `llm_models` 가 trace 에 없음 | HITL 반환에도 기록 |
 
 해석상 주의
-- RAGAS 값은 낮고(faithfulness 0.16, answer_relevancy 0.14) 해석이 어렵다. 서비스 답변이 사용자 발화와 서비스 정책 문장 위주라 문서에서 직접 근거를 찾기 어렵고, 케이스 일부는 되묻기 답변이라 평가 대상으로 적절하지 않다. 값의 절대 수준보다 1차 대비 2차의 변화를 본다.
+- RAGAS 값은 낮고(faithfulness 0.13, context_recall 0.15) 해석이 어렵다. 서비스 답변이 사용자 발화와 서비스 정책 문장 위주라 문서에서 직접 근거를 찾기 어렵고, 케이스 일부는 되묻기 답변이라 평가 대상으로 적절하지 않다. 값의 절대 수준보다 1차 대비 2차의 변화를 본다.
 - 이 실행은 서비스 응답과 Judge 모두 같은 모델 계열(Sonnet/Haiku)이다. Judge 가 서비스와 같은 계열이라 관대할 수 있어, 통과율은 상한 가까운 값일 수 있다.
 - 케이스 통과는 모든 기대 특성을 충족해야 하므로 엄격하다. 기대 특성 충족률(80%)이 케이스 통과율(58%)보다 높다.

@@ -41,6 +41,7 @@ import re
 from botocore.exceptions import BotoCoreError, ClientError
 
 from . import answers, llm, memory, retriever, tools
+from .annex import match_item_ids
 from .guardrails import check_scope, mask_pii, output_guard
 
 log = logging.getLogger("hospital.agent")
@@ -222,8 +223,11 @@ def lookup(state: State) -> dict:
     r = state["region"]
     rooms = tools.find_emergency_rooms(r["sido"], r["sigungu"])
     names = ", ".join(x["name"] for x in rooms) or "결과 없음"
+    # 조회한 응급의료기관을 근거(contexts)로도 내보낸다: 답변의 기관 정보가 공공 API 결과에서 나왔음을 확인할 수 있게
+    ctx = [{"doc_id": f"nemc-er-{i}", "text": f"{x['name']} ({x['kind']}) / {x['address']} / 전화 {x['tel']}"}
+           for i, x in enumerate(rooms, 1)]
     return {
-        "awaiting_location": False, "last_kind": "answer", "region": None,
+        "awaiting_location": False, "last_kind": "answer", "region": None, "contexts": ctx,
         "answer": answers.compose_rooms(r["sido"], r["sigungu"], rooms),
         "trace": _step(state, "find_emergency_rooms", f"{r['sido']} {r['sigungu'] or ''}", f"{len(rooms)}곳: {names}"),
     }
@@ -307,6 +311,12 @@ def _safe_memo(history_text: str):
         return None
 
 
+def _annex_ref(matched_items: list[str]) -> str:
+    """진료 메모의 서비스 안내 줄에 쓸 별표 1 표기. 항목 문구(병명이 든 표현이 있다)는 쓰지 않고 항목 번호만 적는다."""
+    ids = match_item_ids(matched_items)
+    return f" (별표 1 항목: {', '.join(ids)})" if ids else ""
+
+
 def emergency(state: State) -> dict:
     """응급 권고: 별표 1 근거를 보여주고, 병원에서 보여 줄 진료 메모를 붙이고, 지역을 묻는다. 다음 턴의 지역 답변을 기다린다."""
     red = state["red"]
@@ -314,7 +324,7 @@ def emergency(state: State) -> dict:
     with ThreadPoolExecutor(max_workers=2) as pool:  # 근거 검색과 메모 생성은 서로 독립이라 동시에 실행
         f_annex, f_memo = _submit(pool, retriever.search_annex, text_in), _submit(pool, _safe_memo, text_in)
         annex, memo = f_annex.result(), f_memo.result()
-    guidance = "응급 신호 의심" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
+    guidance = "응급 신호 의심" + _annex_ref(red["matched_items"])
     memo_text = answers.compose_memo(memo, guidance)
     text = answers.compose_emergency(red["matched_items"], red["reason"], state.get("notes", []), memo_text)
     trace = state.get("trace", [])
@@ -347,7 +357,7 @@ def advise_er(state: State) -> dict:
         f_dept, f_memo = _submit(pool, _safe_dept, text_in, docs), _submit(pool, _safe_memo, text_in)
         annex, dept, memo = f_annex.result(), f_dept.result(), f_memo.result()
     depts = dept.departments if dept else []
-    guidance = "응급실 방문 권유" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
+    guidance = "응급실 방문 권유" + _annex_ref(red["matched_items"])
     if depts:
         guidance += "; 진료과 후보: " + ", ".join(depts)
     memo_text = answers.compose_memo(memo, guidance)
@@ -501,7 +511,8 @@ def run_agent(question: str, session_id: str | None = None, user_id: str | None 
     paused = out.get("__interrupt__")
     if paused:  # 지역을 기다리며 멈춤: interrupt 에 담긴 질문 문구를 응답으로 돌려주고, trace 에 멈춘 사실을 남긴다
         trace = out.get("trace", []) + [{"step": "human_in_the_loop", "input": "응급의료기관 조회에 필요한 지역이 없음",
-                                          "output": "interrupt() 로 대기, 같은 session_id 의 다음 요청이 재개"}]
+                                          "output": "interrupt() 로 대기, 같은 session_id 의 다음 요청이 재개"},
+                                         {"step": "llm_models", "input": "이번 요청에서 응답한 모델", "output": llm.usage_text(usage)}]
         return {"answer": paused[0].value["prompt"], "contexts": [], "trace": trace}
     trace = out.get("trace", []) + [{"step": "llm_models", "input": "이번 요청에서 응답한 모델", "output": llm.usage_text(usage)}]
     return {"answer": out["answer"], "contexts": out.get("contexts", []), "trace": trace}
