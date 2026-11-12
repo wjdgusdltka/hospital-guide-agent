@@ -1,4 +1,6 @@
 """최종 답변 문장 만들기. 고정 문구(고지·거절·안전망)는 LLM에 맡기지 않고 여기서 코드로 붙인다."""
+import re
+
 from .guardrails import DISCLAIMER
 
 # 거절 문구 (범위 밖 / 제공하지 않는 정보 / 프롬프트 인젝션)
@@ -31,6 +33,29 @@ CHECKIN_REPLY = (
     "말씀해 주셔서 고마워요. 증상이 다시 생기거나 새로 불편한 곳이 있으면 언제든 말씀해 주세요. "
     "응급이 의심되면 바로 119에 연락하세요.\n\n" + DISCLAIMER
 )
+
+
+_THANKS = re.compile(r"고마|감사|땡큐|thank|thx|덕분|도움\s*(이\s*)?됐|도움\s*(이\s*)?되었")
+_BYE = re.compile(r"안녕히|잘\s*있|이만|나갈게|들어갈게|끝낼|종료|바이|bye|수고|다음에")
+_HELLO = re.compile(r"안녕|하이|hello|\bhi\b|반가|처음")
+
+
+def compose_chitchat(message: str, last_kind: str = "") -> str:
+    """인사·감사·작별에 짧고 따뜻하게 답한다(LLM 없이 고정 문구). 응급 안내 직후라면 안내를 한 번 더 상기시킨다.
+
+    정보 요청이 아니므로 응급 점검·검색은 하지 않는다. 증상이 섞인 말은 여기까지 오지 않는다(agent.route_after_classify 의 안전망).
+    """
+    if last_kind == "emergency" and not _HELLO.search(message):
+        return ("도움이 되었다니 다행이에요. 안내드린 대로 가까운 응급실을 이용해 주세요. "
+                "증상이 갑자기 심해지면 기다리지 말고 바로 119에 연락하세요.")
+    if _THANKS.search(message) or _BYE.search(message):
+        if _BYE.search(message) and not _THANKS.search(message):
+            return "이용해 주셔서 고마워요. 몸조리 잘 하세요. 불편한 증상이 생기면 언제든 다시 말씀해 주세요. 응급이 의심되면 바로 119에 연락하세요."
+        return ("도움이 되었다니 다행이에요. 증상이 다시 생기거나 걱정되는 점이 있으면 언제든 다시 말씀해 주세요. "
+                "응급이 의심되면 바로 119에 연락하세요.")
+    if _HELLO.search(message):
+        return "안녕하세요! 불편한 증상을 말씀해 주시면 응급실이 필요한지, 어느 진료과가 좋을지 안내해 드릴게요."
+    return "네, 알겠어요. 불편한 증상이 있으시면 언제든 말씀해 주세요. 응급이 의심되면 바로 119에 연락하세요."
 
 
 def compose_memo(memo, guidance: str) -> str:

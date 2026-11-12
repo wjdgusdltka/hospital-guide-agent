@@ -43,7 +43,7 @@
 FastAPI (src/server.py)
    ▼
 [에이전트 그래프 (LangGraph) — src/agent.py]
-  1. begin/classify      입력 가드레일: PII 마스킹, 범위 분류(증상 / 범위 밖 / 제공 불가 / 인젝션)
+  1. begin/classify      입력 가드레일: PII 마스킹, 범위 분류(증상 / 범위 밖 / 제공 불가 / 인젝션 / 인사·감사). 인사·감사('고마워요', '안녕하세요')는 점검 없이 짧게 맞받고(증상 단어가 섞였으면 정상 점검)
   2. triage (병렬)       check_red_flags(별표 1 기준 응급 점검) + retrieve_guidelines(근거 검색)
         (누가 봐도 응급인 표현이 규칙에 걸리면 MedlinePlus 검색은 시작하지 않고 바로 응급 안내: 응급 답변은 별표 1 근거만 쓰므로)
         긴급(별표 1 응급증상) → emergency: 검정 띠, 지금 바로 119/응급실 + 별표 1 근거 + 진료 메모(make_visit_memo, 병렬) + 지역 질문
@@ -67,7 +67,7 @@ LangGraph 그래프의 분기를 그림으로 보면 다음과 같습니다(주 
 flowchart LR
   begin["begin<br/>PII 마스킹 · 이력 불러오기"] --> classify["classify<br/>범위 · 약 용량 분류"]
   classify -->|증상| triage["triage<br/>응급 점검 + 근거 검색 (병렬)"]
-  classify -->|범위 밖 · 안부 답| short["거절 · 안부 답<br/>(LLM 없이 고정 문구)"]
+  classify -->|범위 밖 · 안부 답 · 인사| short["거절 · 안부 · 인사 답<br/>(LLM 없이 고정 문구)"]
   classify -->|응급실 요청 · 응급 뒤| locate["locate<br/>지역 찾기 · 분기"]
   triage -->|긴급| emergency["emergency<br/>지금 119"]
   triage -->|권유| advise_er["advise_er<br/>응급실 권유 + 진료과"]

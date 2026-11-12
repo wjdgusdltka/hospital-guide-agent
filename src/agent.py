@@ -154,6 +154,8 @@ def classify(state: State) -> dict:
 def route_after_classify(state: State) -> str:
     """분류 결과로 다음 노드를 고른다."""
     cat = state["scope"]["category"]
+    if cat == "chitchat":  # 인사·감사·작별: 짧게 맞받는다. 단, 분류가 틀렸을 때를 대비해 증상이 섞였을 수 있으면 정상 점검으로 보낸다
+        return "chitchat" if _is_pure_chitchat(state["question"]) else "triage"
     if cat in ("out_of_scope", "unavailable"):
         return "refuse"
     if cat == "checkin_ok" and state.get("last_kind") == "greeting":  # 안부 인사에 '나아졌어요'라고만 답함
@@ -162,6 +164,25 @@ def route_after_classify(state: State) -> str:
     if cat == "er_lookup" or (cat == "symptom" and (state.get("emergency_active") or state.get("awaiting_location"))):
         return "locate"
     return "triage"
+
+
+# 증상·몸 상태를 시사하는 말. 하나라도 있으면 인사로 처리하지 않는다(넓게 잡는다: 잘못 걸려도 정상 점검이 한 번 더 도는 것뿐이라 안전한 방향)
+_SYMPTOM_HINT = re.compile(
+    r"아프|아파|아픈|통증|쑤|저리|저려|열이|열나|열도|열은|토하|토했|구토|메스|어지|숨|호흡|피가|피나|피를|출혈|두통|머리|배가|복통|가슴|"
+    r"기침|설사|변비|붓|부었|마비|경련|의식|쓰러|답답|가려|발진|상처|다쳤|넘어|찢어|화상|임신|아이가|아기|증상|병원|응급|119|약을|먹었")
+
+
+def _is_pure_chitchat(question: str) -> bool:
+    """인사·감사로만 보이는가: 짧고(40자 이내) 증상을 시사하는 말과 누가 봐도 응급인 표현이 없을 때만 true.
+    분류기가 증상 섞인 말을 인사로 잘못 분류해도 응급 점검을 건너뛰지 않게 하는 안전망."""
+    q = question.strip()
+    return len(q) <= 40 and not _SYMPTOM_HINT.search(q) and not tools.hard_red_flags(f"사용자: {q}")
+
+
+def chitchat(state: State) -> dict:
+    """인사·감사·작별에 짧게 답한다. 정보 요청이 아니라 점검은 하지 않고, last_kind 는 그대로 둔다(응급 안내 뒤의 지역 질문 등이 이어지도록)."""
+    return {"answer": answers.compose_chitchat(state["question"], state.get("last_kind", "")),
+            "trace": _step(state, "chitchat_reply", state["question"], "인사·감사 -> 점검 없이 짧게 답함")}
 
 
 def checkin(state: State) -> dict:
@@ -466,19 +487,19 @@ def finalize(state: State) -> dict:
 def build_graph():
     """노드와 분기를 연결해 컴파일한다. 체크포인터가 session_id 별 대화 상태를 보관한다."""
     g = StateGraph(State)
-    for fn in (begin, classify, checkin, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency, advise_er,
+    for fn in (begin, classify, chitchat, checkin, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency, advise_er,
                refuse_injection, assess, recommend, save_memory, finalize):
         g.add_node(fn.__name__, fn)
     g.add_edge(START, "begin")
     g.add_edge("begin", "classify")
-    g.add_conditional_edges("classify", route_after_classify, ["refuse", "checkin", "locate", "triage"])
+    g.add_conditional_edges("classify", route_after_classify, ["refuse", "chitchat", "checkin", "locate", "triage"])
     g.add_conditional_edges("locate", route_after_locate, ["lookup", "ask_region", "emergency_followup", "triage"])
     g.add_conditional_edges("ask_region", route_after_ask_region, ["lookup", "begin"])  # HITL 재개 후: 지역이면 조회, 아니면 새 입력
     g.add_edge("lookup", "finalize")
     g.add_edge("emergency_followup", "finalize")
     g.add_conditional_edges("triage", route_after_triage, ["emergency", "advise_er", "refuse_injection", "assess"])
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])
-    for node in ("checkin", "refuse", "refuse_injection"):
+    for node in ("chitchat", "checkin", "refuse", "refuse_injection"):
         g.add_edge(node, "finalize")
     for node in ("emergency", "advise_er", "recommend"):  # 상담이 끝난 답변은 요약을 저장한 뒤 마무리
         g.add_edge(node, "save_memory")
