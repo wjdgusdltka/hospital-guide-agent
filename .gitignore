@@ -38,3 +38,6 @@ data/memory/
 
 # Evaluation scratch results (final round files are committed)
 evaluation/results/*_partial.json
+
+# Archify diagrams (generated)
+.archify/
