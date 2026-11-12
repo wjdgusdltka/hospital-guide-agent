@@ -54,8 +54,13 @@ class QueryResponse(BaseModel):
 
 @app.get("/health")
 def health():
+    # model_cooldowns: 한도에 걸려 잠시 건너뛰는 모델(서버를 켠 뒤 기록). 비어 있으면 모두 정상
+    # quota_alert.all_daily_limited 가 true 면 설정된 모든 모델이 하루 한도에 도달한 것이므로 한도 증설이 필요하다
+    from .llm import cooldown_status, quota_alert
+
     st = index_status()
-    return {"status": "ok", "mock": MOCK_MODE, "index_ready": st["ready"], "index_docs": st["docs"], "index_note": st["reason"]}
+    return {"status": "ok", "mock": MOCK_MODE, "index_ready": st["ready"], "index_docs": st["docs"], "index_note": st["reason"],
+            "model_cooldowns": cooldown_status(), "quota_alert": quota_alert()}
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -63,9 +68,17 @@ def query(req: QueryRequest) -> QueryResponse:
     if MOCK_MODE:
         return _mock_response(req)
     # 실제 에이전트 실행 (동기 함수라 FastAPI가 스레드풀에서 돌린다). 같은 session_id 면 같은 대화로 이어진다.
+    from botocore.exceptions import BotoCoreError, ClientError
+
     from .agent import run_agent
 
-    result = run_agent(req.question, req.session_id)
+    try:
+        result = run_agent(req.question, req.session_id)
+    except (ClientError, BotoCoreError) as e:  # 모든 모델이 한도·장애로 답하지 못할 때: 오류 대신 안전 안내로 응답
+        return QueryResponse(
+            answer=MODEL_UNAVAILABLE_ANSWER, contexts=[],
+            trace=[TraceStep(step="model_unavailable", input="(생략)", output=f"{type(e).__name__}: 모든 모델이 한도 또는 장애로 응답하지 못함")],
+        )
     return QueryResponse(
         answer=result["answer"],
         contexts=[Context(**c) for c in result["contexts"]],
@@ -73,6 +86,10 @@ def query(req: QueryRequest) -> QueryResponse:
     )
 
 
+MODEL_UNAVAILABLE_ANSWER = (
+    "지금은 AI 모델 사용 한도나 장애로 답변을 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.\n\n"
+    "응급이 의심되면 기다리지 말고 바로 119에 연락하세요."
+)
 DISCLAIMER = "※ 참고용 안내이며 근거가 확실하지 않을 수 있습니다. 정확한 판단은 의사에게 받으세요."
 
 

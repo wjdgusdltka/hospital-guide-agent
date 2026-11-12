@@ -32,9 +32,14 @@ _HARD_FLAGS = [
 ]
 
 
+def hard_red_flags(history_text: str) -> list[str]:
+    """안전망 규칙에 맞은 별표 1 항목 라벨을 모두 돌려준다(LLM 호출 없이 즉시). 없으면 빈 목록."""
+    return list(dict.fromkeys(label for pattern, label in _HARD_FLAGS if pattern.search(history_text)))
+
+
 def check_red_flags(history_text: str) -> RedFlagResult:
     """대화 전체에서 응급 신호를 점검한다: 1) 확실한 표현은 규칙으로 즉시 응급 2) 나머지는 LLM이 별표 1에 비춰 판단."""
-    hard = list(dict.fromkeys(label for pattern, label in _HARD_FLAGS if pattern.search(history_text)))  # 맞은 규칙 전부
+    hard = hard_red_flags(history_text)
     if hard:
         return RedFlagResult(emergency=True, matched_items=hard, reason="입력 내용에 응급을 강하게 시사하는 표현이 있어요.")
     annex_a, annex_b = annex_prompt_text()

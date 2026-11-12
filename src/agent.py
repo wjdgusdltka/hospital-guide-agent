@@ -11,9 +11,11 @@
             └ assess(정보 충분?)
                    ├ 부족(3턴 이내) -> followup (되묻기)
                    └ 충분/한도 도달 -> recommend (관련 상태 + 진료과)
-  모든 답변은 finalize(출력 가드레일)를 거친다. 사용자의 답이 필요한 응답(되묻기, 지역 질문)이면
-  wait_user 에서 interrupt() 로 멈추고(HITL), 같은 세션의 다음 요청이 Command(resume=답변)으로 이어 받아
-  begin 으로 돌아간다. 답이 필요 없는 응답은 그대로 끝난다.
+  모든 답변은 finalize(출력 가드레일)를 거쳐 끝난다.
+
+HITL(interrupt)은 꼭 필요한 한 곳에만 쓴다: 응급의료기관을 찾으려는데 지역이 없을 때(ask_region).
+되묻기 질문이나 응급 안내 뒤의 대화는 interrupt 없이 '다음 요청이 새 턴'으로 처리한다. 응급 점검을 매 답마다
+처음부터 다시 해야 하는 흐름이라, 멈췄다 이어가는 것보다 새 턴으로 처리하는 편이 안전하고 단순하기 때문이다.
 
 멀티턴 상태는 체크포인터(InMemorySaver)가 session_id(=thread_id)별로 보관한다. (서버 메모리에만 저장)
 """
@@ -40,6 +42,7 @@ class State(TypedDict, total=False):
     followup_turns: int  # 지금까지 되묻기를 한 횟수
     emergency_active: bool  # 이 대화에서 응급 안내가 나갔는가 (이후 턴은 응급 점검을 반복하지 않고 대화를 이어간다)
     awaiting_location: bool  # 응급 안내 후 지역 답변을 기다리는 중인가
+    region: dict | None  # 조회할 지역 {sido, sigungu}. 없으면 None
     last_kind: str  # 직전 응답 유형: followup / emergency / refuse / answer
     scope: dict  # 입력 분류 결과
     red: dict  # 응급 점검 결과
@@ -115,32 +118,57 @@ def refuse(state: State) -> dict:
 
 
 def locate(state: State) -> dict:
-    """도구 find_emergency_rooms 의 입구: 메시지에서 지역을 찾아 응급의료기관 목록을 조회한다.
+    """도구 find_emergency_rooms 의 입구: 메시지에서 지역(시/도, 시/군/구)을 찾는다.
 
-    - 지역이 있으면 바로 조회한다 (응급 안내 뒤든, 처음부터 '응급실 알려줘'라고 물었든 같다).
-    - 응급실 목록을 물었는데 지역이 없으면('내 주변') 위치를 자동으로 알 수 없으니 지역을 되묻는다.
-    - 그 외(응급 대화 중이거나 지역 답을 기다리다 다른 증상을 말한 경우)는 다음 노드로 넘긴다.
+    응급 안내 뒤의 지역 답이든, 처음부터 '서울 종로구 응급실 알려줘'라고 지역과 함께 물었든 같은 방식으로 찾는다.
     """
     loc = tools.extract_location(state["question"])
-    if not (loc.found and loc.sido):
-        trace = _step(state, "find_emergency_rooms", state["question"], "지역 없음")
-        if state["scope"]["category"] == "er_lookup":
-            return {"answer": answers.compose_ask_region(), "awaiting_location": True, "last_kind": "locate_ask", "trace": trace}
-        return {"awaiting_location": bool(state.get("emergency_active") and state.get("awaiting_location")), "trace": trace}
-    rooms = tools.find_emergency_rooms(loc.sido, loc.sigungu)
-    names = ", ".join(r["name"] for r in rooms) or "결과 없음"
-    return {
-        "awaiting_location": False, "last_kind": "answer",
-        "answer": answers.compose_rooms(loc.sido, loc.sigungu, rooms),
-        "trace": _step(state, "find_emergency_rooms", f"{loc.sido} {loc.sigungu or ''}", f"{len(rooms)}곳: {names}"),
-    }
+    if loc.found and loc.sido:
+        return {"region": {"sido": loc.sido, "sigungu": loc.sigungu}}
+    trace = _step(state, "find_emergency_rooms", state["question"], "지역 없음")
+    return {"region": None, "trace": trace}
 
 
 def route_after_locate(state: State) -> str:
-    """답이 만들어졌으면 마무리, 응급 대화 중이면 이어가기 답변, 아니면 일반 증상 흐름으로."""
-    if state.get("answer"):
-        return "finalize"
+    """지역이 있으면 조회, 응급실 목록을 직접 물었는데 지역이 없으면 지역을 묻고(HITL), 아니면 대화 흐름으로."""
+    if state.get("region"):
+        return "lookup"
+    if state["scope"]["category"] == "er_lookup":
+        return "ask_region"
     return "emergency_followup" if state.get("emergency_active") else "triage"
+
+
+def ask_region(state: State) -> dict:
+    """HITL: 응급의료기관 조회에 꼭 필요한 값(지역)이 없을 때만 interrupt() 로 멈추고 사용자에게 묻는다.
+
+    위치는 자동으로 알 수 없어서 사용자가 직접 알려 줘야 하고, 그 값 없이는 다음 단계(조회)로 갈 수 없다.
+    같은 session_id 의 다음 요청이 Command(resume=답변) 으로 이 지점에서 이어진다.
+    답에 지역이 있으면 곧바로 조회로 가고, 지역이 아닌 다른 말이면 새 입력으로 처음부터 정상 흐름을 다시 탄다.
+    """
+    reply = interrupt({"kind": "region", "prompt": answers.compose_ask_region()})
+    masked, _ = mask_pii(reply)
+    loc = tools.extract_location(masked)
+    if loc.found and loc.sido:
+        step = {"step": "human_in_the_loop", "input": "사용자 응답 수신(재개)", "output": f"지역: {loc.sido} {loc.sigungu or ''}"}
+        return {"question": masked, "region": {"sido": loc.sido, "sigungu": loc.sigungu}, "trace": [step]}
+    return {"question": reply, "region": None}  # 지역이 아니면 begin 이 마스킹하고 새 입력으로 처리한다
+
+
+def route_after_ask_region(state: State) -> str:
+    """재개된 답에 지역이 있으면 조회로, 아니면 새 입력으로 begin 부터."""
+    return "lookup" if state.get("region") else "begin"
+
+
+def lookup(state: State) -> dict:
+    """도구 find_emergency_rooms: 국립중앙의료원 API 로 해당 지역의 응급의료기관 목록을 조회해 안내한다."""
+    r = state["region"]
+    rooms = tools.find_emergency_rooms(r["sido"], r["sigungu"])
+    names = ", ".join(x["name"] for x in rooms) or "결과 없음"
+    return {
+        "awaiting_location": False, "last_kind": "answer", "region": None,
+        "answer": answers.compose_rooms(r["sido"], r["sigungu"], rooms),
+        "trace": _step(state, "find_emergency_rooms", f"{r['sido']} {r['sigungu'] or ''}", f"{len(rooms)}곳: {names}"),
+    }
 
 
 def emergency_followup(state: State) -> dict:
@@ -160,8 +188,15 @@ def triage(state: State) -> dict:
     둘은 서로 입력이 독립이라 병렬로 돌려 시간을 줄인다. 응급이면 검색 결과는 쓰지 않고 버린다.
     - check_red_flags: 별표 1 기준 응급 여부 (매 턴 대화 전체를 다시 본다)
     - retrieve_guidelines: 한국어 증상을 영어 키워드로 바꿔 MedlinePlus 근거 문서를 검색
+
+    단, 누가 봐도 응급인 표현(안전망 규칙)이면 판정이 즉시 나오고 응급 답변은 MedlinePlus 문서를 쓰지 않으므로
+    MedlinePlus 검색은 시작하지 않는다(영어 변환 LLM 호출과 임베딩 검색을 아낀다).
     """
     text = _history_text(state)
+    if tools.hard_red_flags(text):
+        res = tools.check_red_flags(text)  # 규칙 판정이라 LLM 호출 없이 즉시 돌아온다
+        red_out = f"emergency={res.emergency}; 항목={res.matched_items}; {res.reason}"
+        return {"red": res.model_dump(), "docs": [], "trace": _step(state, "check_red_flags", text, red_out)}
 
     def search():
         queries = retriever.translate_query(text)
@@ -204,7 +239,10 @@ def emergency(state: State) -> dict:
     guidance = "응급 신호 의심" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
     memo_text = answers.compose_memo(memo, guidance)
     text = answers.compose_emergency(red["matched_items"], red["reason"], state.get("notes", []), memo_text)
-    trace = _step(state, "make_visit_memo", "대화에서 사용자가 말한 내용 정리", "메모 생성" if memo_text else "메모 생략")
+    trace = state.get("trace", [])
+    if not any(s["step"] == "retrieve_guidelines" for s in trace):  # 규칙으로 바로 응급이 된 경우: 응급 답변의 근거(별표 1) 검색을 기록
+        trace = trace + [{"step": "retrieve_guidelines", "input": "별표 1(응급증상) 검색", "output": _clip(", ".join(d["doc_id"] for d in annex) or "문서 없음")}]
+    trace = trace + [{"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"}]
     return {"answer": text, "contexts": _contexts(annex), "emergency_active": True, "awaiting_location": True,
             "followup_turns": 0, "last_kind": "emergency", "trace": trace}
 
@@ -262,51 +300,28 @@ def finalize(state: State) -> dict:
     """출력 가드레일: 금지 표현(확률·안심·병명 단정·약 용량)이 든 줄을 지우고 trace 에 기록한다."""
     cleaned, removed = output_guard(state["answer"])
     out = f"제거: {', '.join(removed)}" if removed else "통과"
-    trace = _step(state, "output_guardrail", "최종 답변 검사", out)
-    if _expects_reply(state):  # 사용자의 답이 필요한 응답이면 그래프가 여기서 멈춘다(HITL) — trace 에 그 사실을 남긴다
-        trace += [{"step": "human_in_the_loop", "input": "사용자 답변이 필요한 응답", "output": "interrupt() 로 대기, 다음 요청이 같은 세션이면 재개"}]
-    return {"answer": cleaned, "trace": trace}
-
-
-def _expects_reply(state: State) -> bool:
-    """이번 응답이 사용자의 답변을 기다리는 질문인가 (되묻기, 지역 질문)."""
-    kind = state.get("last_kind")
-    return kind in ("followup", "locate_ask") or (kind == "emergency" and bool(state.get("awaiting_location")))
-
-
-def route_after_finalize(state: State) -> str:
-    """답변을 보낸 뒤: 사용자의 답이 필요하면 멈추고(HITL), 아니면 끝낸다."""
-    return "wait_user" if _expects_reply(state) else END
-
-
-def wait_user(state: State) -> dict:
-    """Human-in-the-loop: interrupt() 로 그래프를 멈추고 사용자의 답을 기다린다.
-
-    같은 session_id 의 다음 요청은 Command(resume=답변) 으로 이 지점에서 이어진다.
-    돌려받은 답변은 새 입력(question)이 되어 begin 으로 돌아가 정상 흐름(분류, 지역 조회, 증상 점검)을 다시 탄다.
-    """
-    reply = interrupt({"kind": state.get("last_kind"), "prompt": state.get("answer", "")})
-    return {"question": reply}
+    return {"answer": cleaned, "trace": _step(state, "output_guardrail", "최종 답변 검사", out)}
 
 
 # ------------------------------------------------------------------ 그래프 조립
 def build_graph():
     """노드와 분기를 연결해 컴파일한다. 체크포인터가 session_id 별 대화 상태를 보관한다."""
     g = StateGraph(State)
-    for fn in (begin, classify, refuse, locate, emergency_followup, triage, emergency, refuse_injection, assess,
-               recommend, finalize, wait_user):
+    for fn in (begin, classify, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency,
+               refuse_injection, assess, recommend, finalize):
         g.add_node(fn.__name__, fn)
     g.add_edge(START, "begin")
     g.add_edge("begin", "classify")
     g.add_conditional_edges("classify", route_after_classify, ["refuse", "locate", "triage"])
-    g.add_conditional_edges("locate", route_after_locate, ["finalize", "emergency_followup", "triage"])
+    g.add_conditional_edges("locate", route_after_locate, ["lookup", "ask_region", "emergency_followup", "triage"])
+    g.add_conditional_edges("ask_region", route_after_ask_region, ["lookup", "begin"])  # HITL 재개 후: 지역이면 조회, 아니면 새 입력
+    g.add_edge("lookup", "finalize")
     g.add_edge("emergency_followup", "finalize")
     g.add_conditional_edges("triage", route_after_triage, ["emergency", "refuse_injection", "assess"])
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])
     for node in ("refuse", "emergency", "refuse_injection", "recommend"):
         g.add_edge(node, "finalize")
-    g.add_conditional_edges("finalize", route_after_finalize, ["wait_user", END])
-    g.add_edge("wait_user", "begin")  # 재개된 사용자 답변은 새 입력으로 처음부터(마스킹, 분류, ...) 처리한다
+    g.add_edge("finalize", END)
     return g.compile(checkpointer=InMemorySaver())
 
 
@@ -323,8 +338,13 @@ def run_agent(question: str, session_id: str | None = None) -> dict:
                 _GRAPH = build_graph()
     thread = session_id or uuid.uuid4().hex  # session_id 가 없으면 매번 새 대화
     config = {"configurable": {"thread_id": thread}, "run_name": "hospital-guide-agent", "tags": ["hospital-guide"]}
-    # 직전 응답이 사용자의 답을 기다리며 interrupt() 로 멈춘 세션이면 그 지점에서 재개하고, 아니면 새 입력으로 시작한다.
+    # 직전 요청이 ask_region 의 interrupt() 로 멈춘 세션이면 그 지점에서 재개하고, 아니면 새 입력으로 시작한다.
     # (이전 실행이 오류로 중단된 세션은 interrupt 가 아니므로 새 입력으로 다시 시작한다.)
     waiting = any(t.interrupts for t in _GRAPH.get_state(config).tasks)
     out = _GRAPH.invoke(Command(resume=question) if waiting else {"question": question}, config=config)
+    paused = out.get("__interrupt__")
+    if paused:  # 지역을 기다리며 멈춤: interrupt 에 담긴 질문 문구를 응답으로 돌려주고, trace 에 멈춘 사실을 남긴다
+        trace = out.get("trace", []) + [{"step": "human_in_the_loop", "input": "응급의료기관 조회에 필요한 지역이 없음",
+                                          "output": "interrupt() 로 대기, 같은 session_id 의 다음 요청이 재개"}]
+        return {"answer": paused[0].value["prompt"], "contexts": [], "trace": trace}
     return {"answer": out["answer"], "contexts": out.get("contexts", []), "trace": out.get("trace", [])}

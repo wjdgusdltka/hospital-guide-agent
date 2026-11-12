@@ -19,9 +19,21 @@ DEFAULT_FAST_MODELS = [
     "global.anthropic.claude-sonnet-4-6",
 ]
 
+# Every model the account can use (given by the user). `python -m src.check_quota` probes all of them.
+KNOWN_MODELS = [
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "us.anthropic.claude-sonnet-4-6", "global.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0", "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us.amazon.nova-pro-v1:0", "us.amazon.nova-2-lite-v1:0", "global.amazon.nova-2-lite-v1:0", "us.amazon.nova-lite-v1:0",
+]
+
 AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 MODELS = [m.strip() for m in os.getenv("BEDROCK_MODELS", "").split(",") if m.strip()] or DEFAULT_MODELS
 FAST_MODELS = [m.strip() for m in os.getenv("BEDROCK_FAST_MODELS", "").split(",") if m.strip()] or DEFAULT_FAST_MODELS
+
+# Circuit breaker: a model that hit a limit is skipped for a while instead of being retried on every call.
+DAILY_LIMIT_COOLDOWN_S = int(os.getenv("MODEL_DAILY_COOLDOWN_S", "300"))  # "Too many tokens per day": often recovers within minutes in practice, so re-test every 5 min
+THROTTLE_COOLDOWN_S = int(os.getenv("MODEL_THROTTLE_COOLDOWN_S", "60"))  # ordinary throttling
 
 # Retry (boto3, per model) happens BEFORE falling back to the next model.
 MAX_RETRY_ATTEMPTS = int(os.getenv("BEDROCK_MAX_ATTEMPTS", "6"))
