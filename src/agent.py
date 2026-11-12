@@ -34,8 +34,25 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+import logging
+import re
+
+from botocore.exceptions import BotoCoreError, ClientError
+
 from . import answers, memory, retriever, tools
 from .guardrails import check_scope, mask_pii, output_guard
+
+log = logging.getLogger("hospital.agent")
+
+# 오류 뒤 '다시 답변해 주세요' 같은 재시도 요청: 다시/재시도/계속/이어 + 요청 표현이 함께 있는 짧은 말만 인정한다(증상 문장과 구분)
+_RETRY_WORD = re.compile(r"다시|재시도|계속|이어서|이어가|아까")
+_RETRY_ASK = re.compile(r"답변|대답|응답|말씀|알려|해\s*주|해줘|해\s*봐|시도|보내|부탁|주세요|줘")
+
+
+def is_retry_request(text: str) -> bool:
+    t = text.strip()
+    return len(t) <= 25 and bool(_RETRY_WORD.search(t)) and bool(_RETRY_ASK.search(t))
+
 
 MAX_FOLLOWUP_TURNS = 3  # 되묻기 최대 횟수 (SERVICE.md 정책)
 MAX_TRACE_CHARS = 400  # trace 한 칸의 최대 길이
@@ -228,6 +245,7 @@ def triage(state: State) -> dict:
     MedlinePlus 검색은 시작하지 않는다(영어 변환 LLM 호출과 임베딩 검색을 아낀다).
     """
     text = _history_text(state)
+    state = {**state, "trace": _save_progress(state, text)}  # 답변을 만들기 전에 '진행 중' 기록부터 남긴다(도중에 끊겨도 이어갈 수 있게)
     if tools.hard_red_flags(text):
         res = tools.check_red_flags(text)  # 규칙 판정이라 LLM 호출 없이 즉시 돌아온다
         red_out = f"emergency={res.emergency}; level={res.level}; 항목={res.matched_items}; {res.reason}"
@@ -245,6 +263,25 @@ def triage(state: State) -> dict:
     trace = _step(state, "check_red_flags", text, red_out)
     trace += [{"step": "retrieve_guidelines", "input": _clip(" | ".join(queries)), "output": _clip(docs_out)}]
     return {"red": res.model_dump(), "docs": docs, "trace": trace}
+
+
+def _save_progress(state: State, history_text: str) -> list[dict]:
+    """장기 메모리: 상담이 끝나길 기다리지 않고 사용자 발화를 매 턴 '진행 중' 기록으로 저장한다. 갱신된 trace 를 돌려준다.
+
+    LLM 호출이 없고, 저장 실패가 상담을 막지 않는다. 이미 결론이 난 같은 대화의 기록은 덮어쓰지 않는다.
+    """
+    trace, uid = state.get("trace", []), state.get("user_id")
+    if not uid:
+        return trace
+    rec = memory.build_progress(history_text)
+    if rec is None:
+        return trace
+    try:
+        saved = memory.save_progress(uid, state.get("session_id") or "default", rec)
+        out = f"{len(rec['statements'])}개 발화 저장" if saved else "이미 결론이 난 상담이라 유지"
+    except Exception as e:
+        out = f"저장 실패({type(e).__name__}): 상담은 그대로 진행"
+    return trace + [{"step": "save_memory", "input": "진행 중 상담 저장(장기 메모리)", "output": out}]
 
 
 def route_after_triage(state: State) -> str:
@@ -280,7 +317,7 @@ def emergency(state: State) -> dict:
     trace = trace + [{"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"}]
     return {"answer": text, "contexts": _contexts(annex), "emergency_active": True, "awaiting_location": True,
             "followup_turns": 0, "last_kind": "emergency", "trace": trace,
-            "consult": memory.build_record("urgent", memo, [], text_in)}
+            "consult": memory.build_record("urgent", memo, [], text_in, memo_text)}
 
 
 def _safe_dept(history_text: str, docs: list[dict]):
@@ -316,7 +353,7 @@ def advise_er(state: State) -> dict:
     ]
     return {"answer": text, "contexts": _contexts(annex) + _contexts(docs), "emergency_active": True, "awaiting_location": True,
             "followup_turns": 0, "last_kind": "emergency", "trace": trace,
-            "consult": memory.build_record("advise", memo, depts, text_in)}
+            "consult": memory.build_record("advise", memo, depts, text_in, memo_text)}
 
 
 def refuse_injection(state: State) -> dict:
@@ -329,7 +366,7 @@ def assess(state: State) -> dict:
     turns = state.get("followup_turns", 0)
     res = tools.ask_followup(_history_text(state), state["docs"])
     if not res.enough_info and turns < MAX_FOLLOWUP_TURNS:
-        text = answers.compose_followup(res.questions, state.get("notes", []))
+        text = answers.compose_followup(res.questions, state.get("notes", []), turns)
         asked = "서비스 질문: " + " / ".join(res.questions)
         return {"answer": text, "history": [asked], "followup_turns": turns + 1, "last_kind": "followup",
                 "contexts": _contexts(state["docs"]), "scope": {**state["scope"], "conservative": False},
@@ -366,7 +403,7 @@ def recommend(state: State) -> dict:
         {"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"},
     ]
     return {"answer": answer, "trace": trace, "followup_turns": 0, "last_kind": "answer",
-            "consult": memory.build_record("recommend", memo, dept.departments, text)}
+            "consult": memory.build_record("recommend", memo, dept.departments, text, memo_text)}
 
 
 def save_memory(state: State) -> dict:
@@ -434,10 +471,26 @@ def run_agent(question: str, session_id: str | None = None, user_id: str | None 
     thread = session_id or uuid.uuid4().hex  # session_id 가 없으면 매번 새 대화
     config = {"configurable": {"thread_id": thread}, "run_name": "hospital-guide-agent", "tags": ["hospital-guide"]}
     # 직전 요청이 ask_region 의 interrupt() 로 멈춘 세션이면 그 지점에서 재개하고, 아니면 새 입력으로 시작한다.
-    # (이전 실행이 오류로 중단된 세션은 interrupt 가 아니므로 새 입력으로 다시 시작한다.)
-    waiting = any(t.interrupts for t in _GRAPH.get_state(config).tasks)
+    snap = _GRAPH.get_state(config)
+    waiting = any(t.interrupts for t in snap.tasks)
+    # 직전 요청이 오류로 도중에 끊긴 세션(저장된 다음 단계가 남아 있음)에서 '다시 답변해 주세요' 같은 재시도 요청이 오면,
+    # 새 질문으로 처리하지 않고 끊긴 지점부터 이어서 처리한다(오류 직전의 대화와 질문을 그대로 쓴다).
+    crashed = bool(snap.next) and not waiting
     payload = {"question": question, "user_id": user_id, "session_id": thread}
-    out = _GRAPH.invoke(Command(resume=question) if waiting else payload, config=config)
+    if waiting:
+        first_input = Command(resume=question)
+    elif crashed and is_retry_request(question):
+        first_input = None  # 저장된 상태에서 끊긴 노드부터 다시 실행
+    else:
+        first_input = payload  # 끊긴 세션이어도 새 입력이면 지금까지의 대화 기록(history)은 그대로 이어진다
+    try:
+        out = _GRAPH.invoke(first_input, config=config)
+    except (ClientError, BotoCoreError):
+        raise  # 모델 한도·장애는 서버가 안전 안내로 바꾼다(곧바로 다시 해도 같은 결과라 자동 재시도하지 않음)
+    except Exception:
+        # 모델이 형식에 맞지 않는 출력을 낸 것 같은 일시적 오류: 끊긴 지점부터 한 번 자동으로 다시 시도한다
+        log.exception("agent turn failed; retrying once from the failed step")
+        out = _GRAPH.invoke(None, config=config)
     paused = out.get("__interrupt__")
     if paused:  # 지역을 기다리며 멈춤: interrupt 에 담긴 질문 문구를 응답으로 돌려주고, trace 에 멈춘 사실을 남긴다
         trace = out.get("trace", []) + [{"step": "human_in_the_loop", "input": "응급의료기관 조회에 필요한 지역이 없음",

@@ -96,12 +96,18 @@ class CooldownFallback(Runnable):
         last: Exception | None = None
         for i in order:
             try:
-                return self.runnables[i].invoke(input, config, **kwargs)
+                result = self.runnables[i].invoke(input, config, **kwargs)
+                if result is None:  # 구조화 출력을 해석하지 못해 None 이 온 경우도 실패로 보고 다음 모델로 넘어간다
+                    raise ValueError("model returned no structured output")
+                return result
             except FALLBACK_EXCEPTIONS as e:
                 last = e
                 if _is_throttle(e):
                     _trip(self.ids[i], e)
                 log.warning("model %s failed (%s) -> next model", self.ids[i], type(e).__name__)
+            except Exception as e:  # 형식에 맞지 않는 출력(검증·파싱 오류)도 다음 모델로 넘긴다. 쿨다운은 걸지 않는다
+                last = e
+                log.warning("model %s returned invalid output (%s) -> next model", self.ids[i], type(e).__name__)
         raise last  # every model failed
 
 

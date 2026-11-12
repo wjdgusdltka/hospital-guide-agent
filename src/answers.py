@@ -109,10 +109,10 @@ def compose_emergency_reply(reply: str, notes: list[str], ask_location: bool) ->
     return "\n\n".join(parts)
 
 
-def compose_followup(questions: list[str], notes: list[str]) -> str:
-    """되묻기. 질문 1~2개와 '모르겠어요'도 괜찮다는 안내."""
+def compose_followup(questions: list[str], notes: list[str], asked_before: int = 0) -> str:
+    """되묻기. 질문 1~2개와 '모르겠어요'도 괜찮다는 안내. 두 번째 질문부터는 이어 묻는 어조로 바꾼다."""
     lines = [" ".join(notes)] if notes else []
-    lines.append("정확히 안내드리기 위해 몇 가지 여쭤볼게요.")
+    lines.append("정확히 안내드리기 위해 몇 가지 여쭤볼게요." if asked_before == 0 else "추가로 몇 가지만 더 확인하겠습니다.")
     lines.append("\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)))
     lines.append("모르시면 '모르겠어요'라고 답하셔도 됩니다.")
     return "\n\n".join(lines)

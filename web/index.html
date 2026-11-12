@@ -66,8 +66,19 @@
       </div>
       <div class="sheet-body" id="sheetBody"></div>
       <div class="sheet-foot">
-        <p class="sheet-note">증상 요약과 안내 결과만 이 서버에 저장돼요. 대화 원문은 저장하지 않아요.</p>
+        <p class="sheet-note">증상 요약, 안내 결과, 진료 메모와 상담 중 사용자가 쓴 문장이 이 서버에 저장돼요(개인정보는 가려서 저장). AI 답변 원문은 저장하지 않아요.</p>
         <button class="btn btn--sm" id="clearHistory" type="button">모두 지우기</button>
+      </div>
+    </section>
+
+    <!-- 저장된 상담 한 건(진료 카드) 팝업 -->
+    <section class="modal" id="detail" role="dialog" aria-modal="true" aria-labelledby="detailTitle" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="detailTitle">상담 기록</h2>
+          <button class="btn btn--sm" id="closeDetail" type="button">닫기</button>
+        </div>
+        <div id="detailBody" class="sheet-body"></div>
       </div>
     </section>
 
@@ -177,15 +188,79 @@
 
     // 상담 한 건: 날짜 · 안내 결과 · 증상 · 진료과 (이력 패널과 첫 화면 요약이 같이 쓴다)
     function histItem(c, tag) {
-      const box = el(tag === "li" ? "li" : "div", tag === "li" ? "" : "hist");
+      const box = el(tag === "li" ? "li" : "div", (tag === "li" ? "" : "hist ") + "hist-open");
+      box.tabIndex = 0;
+      box.setAttribute("role", "button");
+      box.setAttribute("aria-label", c.when + " 상담 기록 열기");
+      box.addEventListener("click", () => openDetail(c));
+      box.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(c); } });
       const top = el("div", "hist-top");
       top.appendChild(el("span", "tag tag--" + c.level, c.level_label));
       top.appendChild(el("span", "hist-when", c.when));
       box.appendChild(top);
       box.appendChild(el("p", "hist-sym", c.symptoms));
       if (c.departments && c.departments.length) box.appendChild(el("p", "hist-dept", "안내한 진료과: " + c.departments.join(", ")));
+      box.appendChild(el("p", "hist-more", c.memo ? "눌러서 진료 카드 보기" : "눌러서 자세히 보기"));
       return box;
     }
+
+    // 긴 목록을 쪽으로 나눈다: 목록 칸(listEl)에 이번 쪽 항목을 그리고, 이전/다음 버튼이 있는 막대를 돌려준다
+    const PER_PAGE = 5;
+    function pager(listEl, items, build) {
+      let page = 0;
+      const pages = Math.max(1, Math.ceil(items.length / PER_PAGE));
+      const bar = el("nav", "pager");
+      bar.setAttribute("aria-label", "쪽 이동");
+      const prev = el("button", "btn btn--sm", "이전"); prev.type = "button";
+      const next = el("button", "btn btn--sm", "다음"); next.type = "button";
+      const label = el("span", "pager-label");
+      bar.append(prev, label, next);
+      bar.hidden = items.length <= PER_PAGE;
+      function render() {
+        listEl.textContent = "";
+        items.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((c) => listEl.appendChild(build(c)));
+        prev.disabled = page === 0;
+        next.disabled = page >= pages - 1;
+        label.textContent = (page + 1) + " / " + pages + " 쪽 · 총 " + items.length + "건";
+      }
+      prev.addEventListener("click", () => { page -= 1; render(); });
+      next.addEventListener("click", () => { page += 1; render(); });
+      render();
+      return bar;
+    }
+
+    // ---- 상담 한 건 팝업: 저장된 진료 카드(진료 메모)를 다시 보여 준다
+    const detail = document.getElementById("detail");
+    let detailOpener = null;
+    function openDetail(c) {
+      detailOpener = document.activeElement;
+      const body = document.getElementById("detailBody");
+      body.textContent = "";
+      const top = el("div", "hist-top");
+      top.appendChild(el("span", "tag tag--" + c.level, c.level_label));
+      top.appendChild(el("span", "hist-when", c.when));
+      body.appendChild(top);
+      body.appendChild(el("p", "hist-sym", c.symptoms));
+      if (c.departments && c.departments.length) body.appendChild(el("p", "hist-dept", "안내한 진료과: " + c.departments.join(", ")));
+      if (c.memo) {
+        body.appendChild(buildMemoCard(c.memo));
+      } else if (c.level === "in_progress") {
+        body.appendChild(el("p", "hist-dept", "안내를 받기 전에 끝난 상담이에요. 새 대화를 열면 이어서 도와드려요. 그때까지 말씀하신 내용:"));
+        const ul = el("ul", "modal-said");
+        (c.statements || []).forEach((s) => ul.appendChild(el("li", "", s)));
+        body.appendChild(ul);
+      } else {
+        body.appendChild(el("p", "hist-dept", "이 상담에는 저장된 진료 카드가 없어요."));
+      }
+      detail.hidden = false;
+      document.getElementById("closeDetail").focus();
+    }
+    function closeDetail() {
+      detail.hidden = true;
+      if (detailOpener && detailOpener.isConnected) detailOpener.focus();
+    }
+    document.getElementById("closeDetail").addEventListener("click", closeDetail);
+    detail.addEventListener("click", (e) => { if (e.target === detail) closeDetail(); });
 
     // 새 대화 첫 화면: 안부 인사 + 최근 상담 요약 + 예시 질문. 인사와 요약은 대화 위에 남는다.
     async function showEmpty() {
@@ -206,8 +281,8 @@
         head.appendChild(more);
         card.appendChild(head);
         const ul = el("ul", "recap-list");
-        hist.consultations.slice(0, 3).forEach((c) => ul.appendChild(histItem(c, "li")));
         card.appendChild(ul);
+        card.appendChild(pager(ul, hist.consultations, (c) => histItem(c, "li")));
         chat.appendChild(card);
       }
       const box = el("div", "empty");
@@ -232,7 +307,11 @@
       const body = document.getElementById("sheetBody");
       body.textContent = "";
       if (!hist.consultations.length) body.appendChild(el("p", "empty-hist", "아직 저장된 상담 이력이 없어요."));
-      hist.consultations.forEach((c) => body.appendChild(histItem(c, "div")));
+      if (hist.consultations.length) {
+        const list = el("div", "hist-list");
+        body.appendChild(list);
+        body.appendChild(pager(list, hist.consultations, (c) => histItem(c, "div")));
+      }
       document.getElementById("clearHistory").disabled = !hist.consultations.length;
       sheet.hidden = false;
       document.getElementById("closeSheet").focus();
@@ -544,7 +623,7 @@
       if (busy) return;
       newSession(); showEmpty(); input.focus();
     });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) closeSheet(); });
+    document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (!detail.hidden) closeDetail(); else if (!sheet.hidden) closeSheet(); });
 
     // 시작: 저장된 이름(또는 '이름 없이')이 있으면 바로 들어가고, 없으면 이름 입력부터
     renderWho(); syncTop(); renderThemeIcon();

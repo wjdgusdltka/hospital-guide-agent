@@ -91,6 +91,12 @@ def query(req: QueryRequest) -> QueryResponse:
             answer=MODEL_UNAVAILABLE_ANSWER, contexts=[],
             trace=[TraceStep(step="model_unavailable", input="(생략)", output=f"{type(e).__name__}: 모든 모델이 한도 또는 장애로 응답하지 못함")],
         )
+    except Exception as e:  # 예상하지 못한 오류도 500 대신 안전 안내로 응답한다(원인은 서버 로그에 남긴다). 대화는 끊긴 지점에 보존된다
+        logger.exception("unexpected error while answering")
+        return QueryResponse(
+            answer=MODEL_UNAVAILABLE_ANSWER, contexts=[],
+            trace=[TraceStep(step="agent_error", input="(생략)", output=f"{type(e).__name__}: 답변 생성 중 오류, 대화는 보존됨")],
+        )
     return QueryResponse(
         answer=result["answer"],
         contexts=[Context(**c) for c in result["contexts"]],
@@ -132,7 +138,8 @@ def clear_history(req: NameRequest) -> dict:
 
 
 MODEL_UNAVAILABLE_ANSWER = (
-    "지금은 AI 모델 사용 한도나 장애로 답변을 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.\n\n"
+    "지금은 답변을 만들지 못했어요(AI 모델 사용 한도나 일시적인 오류). 잠시 뒤 \"다시 답변해 주세요\"라고 보내시면 "
+    "하던 대화를 이어서 답변드려요.\n\n"
     "응급이 의심되면 기다리지 말고 바로 119에 연락하세요."
 )
 DISCLAIMER = "※ 참고용 안내이며 근거가 확실하지 않을 수 있습니다. 정확한 판단은 의사에게 받으세요."
