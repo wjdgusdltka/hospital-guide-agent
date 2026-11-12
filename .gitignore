@@ -35,3 +35,6 @@ data/memory/
 
 # Claude Code worktrees and local state
 .claude/
+
+# Evaluation scratch results (final round files are committed)
+evaluation/results/*_partial.json

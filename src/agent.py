@@ -24,6 +24,7 @@ HITL(interrupt)은 꼭 필요한 한 곳에만 쓴다: 응급의료기관을 찾
 
 멀티턴 상태는 체크포인터(InMemorySaver)가 session_id(=thread_id)별로 보관한다. (서버 메모리에만 저장)
 """
+import contextvars
 import operator
 import threading
 import uuid
@@ -39,7 +40,7 @@ import re
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from . import answers, memory, retriever, tools
+from . import answers, llm, memory, retriever, tools
 from .guardrails import check_scope, mask_pii, output_guard
 
 log = logging.getLogger("hospital.agent")
@@ -98,6 +99,11 @@ def _history_text(state: State) -> str:
 def _contexts(docs: list[dict]) -> list[dict]:
     """검색 문서를 API 응답 형식(doc_id, text)으로 바꾼다."""
     return [{"doc_id": d["doc_id"], "text": d["text"]} for d in docs]
+
+
+def _submit(pool, fn, *args):
+    """스레드 풀에 작업을 맡기되 현재 컨텍스트를 복사해 넘긴다(어떤 모델이 답했는지 세는 값이 스레드 안에서도 같은 요청에 쌓이도록)."""
+    return pool.submit(contextvars.copy_context().run, fn, *args)
 
 
 # ------------------------------------------------------------------ 노드
@@ -256,7 +262,7 @@ def triage(state: State) -> dict:
         return queries, retriever.search_medlineplus(queries)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        f_red, f_search = pool.submit(tools.check_red_flags, text), pool.submit(search)
+        f_red, f_search = _submit(pool, tools.check_red_flags, text), _submit(pool, search)
         res, (queries, docs) = f_red.result(), f_search.result()
     red_out = f"emergency={res.emergency}; level={res.level}; 항목={res.matched_items}; {res.reason}"
     docs_out = ", ".join(f"{d['doc_id']}({d['title']})" for d in docs) or "문서 없음"
@@ -306,7 +312,7 @@ def emergency(state: State) -> dict:
     red = state["red"]
     text_in = _history_text(state)
     with ThreadPoolExecutor(max_workers=2) as pool:  # 근거 검색과 메모 생성은 서로 독립이라 동시에 실행
-        f_annex, f_memo = pool.submit(retriever.search_annex, text_in), pool.submit(_safe_memo, text_in)
+        f_annex, f_memo = _submit(pool, retriever.search_annex, text_in), _submit(pool, _safe_memo, text_in)
         annex, memo = f_annex.result(), f_memo.result()
     guidance = "응급 신호 의심" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
     memo_text = answers.compose_memo(memo, guidance)
@@ -337,8 +343,8 @@ def advise_er(state: State) -> dict:
     red, docs = state["red"], state["docs"]
     text_in = _history_text(state)
     with ThreadPoolExecutor(max_workers=3) as pool:
-        f_annex = pool.submit(retriever.search_annex, text_in)
-        f_dept, f_memo = pool.submit(_safe_dept, text_in, docs), pool.submit(_safe_memo, text_in)
+        f_annex = _submit(pool, retriever.search_annex, text_in)
+        f_dept, f_memo = _submit(pool, _safe_dept, text_in, docs), _submit(pool, _safe_memo, text_in)
         annex, dept, memo = f_annex.result(), f_dept.result(), f_memo.result()
     depts = dept.departments if dept else []
     guidance = "응급실 방문 권유" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
@@ -387,9 +393,9 @@ def recommend(state: State) -> dict:
     """도구 find_related_conditions, recommend_department, make_visit_memo 를 동시에 실행해 비응급 안내를 만든다."""
     text, docs = _history_text(state), state["docs"]
     with ThreadPoolExecutor(max_workers=3) as pool:  # 세 LLM 호출은 서로 독립이라 병렬로
-        f_cond = pool.submit(tools.find_related_conditions, text, docs)
-        f_dept = pool.submit(tools.recommend_department, text, docs)
-        f_memo = pool.submit(_safe_memo, text)
+        f_cond = _submit(pool, tools.find_related_conditions, text, docs)
+        f_dept = _submit(pool, tools.recommend_department, text, docs)
+        f_memo = _submit(pool, _safe_memo, text)
         conditions, dept, memo = f_cond.result(), f_dept.result(), f_memo.result()
     guidance = "진료과 후보: " + ", ".join(dept.departments)  # '응급 아님'이라고 단정하는 문구는 의사가 보는 메모에 넣지 않는다
     memo_text = answers.compose_memo(memo, guidance)
@@ -483,6 +489,7 @@ def run_agent(question: str, session_id: str | None = None, user_id: str | None 
         first_input = None  # 저장된 상태에서 끊긴 노드부터 다시 실행
     else:
         first_input = payload  # 끊긴 세션이어도 새 입력이면 지금까지의 대화 기록(history)은 그대로 이어진다
+    usage = llm.start_usage()  # 이번 요청에서 실제로 답한 모델을 세기 시작
     try:
         out = _GRAPH.invoke(first_input, config=config)
     except (ClientError, BotoCoreError):
@@ -496,4 +503,5 @@ def run_agent(question: str, session_id: str | None = None, user_id: str | None 
         trace = out.get("trace", []) + [{"step": "human_in_the_loop", "input": "응급의료기관 조회에 필요한 지역이 없음",
                                           "output": "interrupt() 로 대기, 같은 session_id 의 다음 요청이 재개"}]
         return {"answer": paused[0].value["prompt"], "contexts": [], "trace": trace}
-    return {"answer": out["answer"], "contexts": out.get("contexts", []), "trace": out.get("trace", [])}
+    trace = out.get("trace", []) + [{"step": "llm_models", "input": "이번 요청에서 응답한 모델", "output": llm.usage_text(usage)}]
+    return {"answer": out["answer"], "contexts": out.get("contexts", []), "trace": trace}

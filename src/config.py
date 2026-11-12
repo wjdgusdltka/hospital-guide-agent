@@ -5,29 +5,36 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Fallback order: first = primary. Overridable via BEDROCK_MODELS (comma-separated).
+# 사용 리전: us-west-2 (오레곤). 아래 모델 id 는 이 리전에서 쓸 수 있는 것들이다(us.* 는 미국 추론 프로파일, global.* 는 글로벌 프로파일).
+# 리전을 바꾸면 이 목록도 그 리전에서 쓸 수 있는 id 로 바꿔야 한다. BEDROCK_MODELS / BEDROCK_FAST_MODELS 로 덮어쓸 수 있다.
+# Fallback order: first = primary. us.* 와 global.* 는 한도가 따로 잡히는 경우가 있어 번갈아 둔다.
+# 안전 판단(응급 점검 등)에 쓰는 메인 체인은 Anthropic 모델만 둔다. Nova 계열은 구조화 출력 품질을 검증하지 않아 넣지 않았다.
 DEFAULT_MODELS = [
-    "global.anthropic.claude-sonnet-4-6",
     "us.anthropic.claude-sonnet-4-6",
+    "global.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 ]
 
 # Light steps (scope check, query translation, region extraction) use a faster/cheaper model first.
 DEFAULT_FAST_MODELS = [
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "global.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-sonnet-4-6",
 ]
 
-# Every model the account can use (given by the user). `python -m src.check_quota` probes all of them.
+# Every model the account can use in this region (given by the user). `python -m src.check_quota` probes all of them.
 KNOWN_MODELS = [
-    "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "us.anthropic.claude-sonnet-4-6", "global.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "us.anthropic.claude-haiku-4-5-20251001-v1:0", "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "us.amazon.nova-pro-v1:0", "us.amazon.nova-2-lite-v1:0", "global.amazon.nova-2-lite-v1:0", "us.amazon.nova-lite-v1:0",
+    "us.amazon.nova-pro-v1:0", "us.amazon.nova-lite-v1:0", "us.amazon.nova-micro-v1:0",
+    "us.amazon.nova-2-lite-v1:0", "global.amazon.nova-2-lite-v1:0",
 ]
 
-AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-west-2")
 MODELS = [m.strip() for m in os.getenv("BEDROCK_MODELS", "").split(",") if m.strip()] or DEFAULT_MODELS
 FAST_MODELS = [m.strip() for m in os.getenv("BEDROCK_FAST_MODELS", "").split(",") if m.strip()] or DEFAULT_FAST_MODELS
 

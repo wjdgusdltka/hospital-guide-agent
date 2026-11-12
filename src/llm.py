@@ -6,9 +6,11 @@ Order of defense for one call:
   3) A model that failed because of throttling is put on cooldown, so the following calls skip it right away
      instead of spending several seconds of retries on it every time (a daily token limit does not recover soon).
 """
+import contextvars
 import logging
 import threading
 import time
+from collections import Counter
 
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
@@ -66,6 +68,30 @@ def quota_alert() -> dict:
     return {"all_daily_limited": len(limited) == len(chain), "daily_limited": limited, "checked": len(chain)}
 
 
+# ------------------------------------------------------------------ which model answered (per request)
+# 요청마다 어떤 모델이 실제로 응답했는지 센다. 한도 때문에 Sonnet 대신 Haiku 가 답하면 평가 결과 해석이 달라지므로 trace 에 남긴다.
+_USAGE: contextvars.ContextVar[Counter | None] = contextvars.ContextVar("llm_usage", default=None)
+
+
+def start_usage() -> Counter:
+    """요청 처리 시작 시 호출. 이 컨텍스트(와 여기서 복사된 스레드 컨텍스트)에서 성공한 호출을 센다."""
+    c: Counter = Counter()
+    _USAGE.set(c)
+    return c
+
+
+def usage_text(c: Counter) -> str:
+    """'모델 id ×횟수' 목록 (많이 쓴 순)."""
+    return ", ".join(f"{m} ×{n}" for m, n in c.most_common()) or "LLM 호출 없음"
+
+
+def _note_model(model_id: str) -> None:
+    c = _USAGE.get()
+    if c is not None:
+        with _LOCK:
+            c[model_id] += 1
+
+
 # ------------------------------------------------------------------ models
 def build_model(model_id: str) -> ChatBedrockConverse:
     """One Bedrock model with adaptive retry/backoff for throttling."""
@@ -99,6 +125,7 @@ class CooldownFallback(Runnable):
                 result = self.runnables[i].invoke(input, config, **kwargs)
                 if result is None:  # 구조화 출력을 해석하지 못해 None 이 온 경우도 실패로 보고 다음 모델로 넘어간다
                     raise ValueError("model returned no structured output")
+                _note_model(self.ids[i])
                 return result
             except FALLBACK_EXCEPTIONS as e:
                 last = e
