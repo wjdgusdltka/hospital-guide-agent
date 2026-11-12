@@ -224,23 +224,3 @@ body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr);
   .stack { max-width: 94%; }
   .alert-rest { padding-left: 0; }
 }
-
-/* ===== Follow-up answer buttons (yes / no / not sure) ===== */
-.fq { margin-top: var(--space-sm); }
-.fq-text { margin: 0; white-space: pre-wrap; max-width: none; }
-.fq-choices { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-top: var(--space-xs); }
-.fq-choice { min-width: 4.5rem; flex: 1 1 auto; white-space: nowrap; }
-.fq-choice[aria-pressed="true"] {
-  color: var(--color-accent-ink);
-  background: linear-gradient(var(--color-accent), var(--color-accent-deep));
-  box-shadow: inset 0 1px 0 var(--glint), 0 0 0 var(--rule-hair) var(--color-accent-deep), 0 2px 0 var(--color-accent-deep);
-}
-.fq-choice[aria-pressed="true"]:hover { background: linear-gradient(var(--color-accent), var(--color-accent-deep)); filter: brightness(1.06); }
-.fq-choice:focus-visible, .fq-submit:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
-.fq-choice:disabled { cursor: default; color: var(--color-muted); background: var(--color-paper-3); box-shadow: none; }
-.fq-choice[aria-pressed="true"]:disabled { color: var(--color-accent-ink); background: var(--color-accent-deep); }
-.fq-send { margin-top: var(--space-md); }
-.fq-send .fq-submit { width: 100%; }
-.fq-send:has(> [hidden]) { display: none; }
-.fq--done .fq-choice { pointer-events: none; opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .fq-choice, .fq-submit { transition: none; } }

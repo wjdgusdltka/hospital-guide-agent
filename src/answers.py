@@ -1,6 +1,5 @@
 """최종 답변 문장 만들기. 고정 문구(고지·거절·안전망)는 LLM에 맡기지 않고 여기서 코드로 붙인다."""
 from .guardrails import DISCLAIMER
-from .schemas import OpenQuestion
 
 # 거절 문구 (범위 밖 / 제공하지 않는 정보 / 프롬프트 인젝션)
 REFUSE_OUT_OF_SCOPE = (
@@ -74,15 +73,11 @@ def compose_emergency_reply(reply: str, notes: list[str], ask_location: bool) ->
     return "\n\n".join(parts)
 
 
-CLOSED_SUFFIX = " (예/아니오/모르겠어요)"  # UI 가 이 접미사가 붙은 번호 줄을 선택 버튼으로 바꾼다
-
-
 def compose_followup(questions: list[str], notes: list[str]) -> str:
-    """되묻기. 질문 1~2개를 번호 줄로 쓰고, 예/아니오 질문에는 접미사를 붙인다(열린 질문은 OpenQuestion)."""
+    """되묻기. 질문 1~2개와 '모르겠어요'도 괜찮다는 안내."""
     lines = [" ".join(notes)] if notes else []
-    lines.append("정확히 안내드리기 위해 몇 가지 여쭤볼게요. 아래 질문에 버튼을 누르거나 직접 입력해 답해 주세요.")
-    lines.append("\n".join(
-        f"{i}. {q}" if isinstance(q, OpenQuestion) else f"{i}. {q}{CLOSED_SUFFIX}" for i, q in enumerate(questions, 1)))
+    lines.append("정확히 안내드리기 위해 몇 가지 여쭤볼게요.")
+    lines.append("\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)))
     lines.append("모르시면 '모르겠어요'라고 답하셔도 됩니다.")
     return "\n\n".join(lines)
 

@@ -32,25 +32,18 @@ _HARD_FLAGS = [
 ]
 
 
-_ANSWERED = re.compile(r"질문:\s*(.+?)\s*/\s*답:\s*([^\n]*)")  # 버튼 답변 줄: '질문: <질문> / 답: <예|아니오|모르겠어요>'
+def _user_statements(history_text: str) -> str:
+    """안전망 규칙을 적용할 글만 추린다: 사용자가 직접 말한 내용.
 
-
-def _rule_text(history_text: str) -> str:
-    """안전망 규칙을 적용할 글만 추린다: 사용자가 직접 말한 내용 + 위험 질문에 '예'/'모르겠어요'라고 누른 질문.
-
-    서비스가 한 질문 문장('의식이 흐려지나요?')은 사용자가 말한 증상이 아니므로 규칙에서 뺀다.
-    (그대로 두면 '아니오'라고 답해도 질문 속 단어에 걸려 응급으로 오판한다.) 버튼 답변 줄에 들어 있는
-    질문 문장도 뺀 뒤, 답이 '예'나 '모르겠어요'인 질문만 다시 더한다(모르겠다는 위험 쪽으로 보는 보수적 정책).
+    서비스가 한 질문 문장('의식이 흐려지나요?')이나 이어가기 답변은 사용자가 말한 증상이 아니므로 규칙에서 뺀다.
+    (그대로 두면 사용자가 '아니요'라고 답해도 질문 속 단어에 걸려 응급으로 오판한다.)
     """
-    kept = [l for l in history_text.split("\n") if not l.startswith(("서비스 질문:", "서비스 답변:"))]
-    text = "\n".join(kept)
-    risky = [q for q, a in _ANSWERED.findall(text) if a.strip() in ("예", "모르겠어요")]
-    return _ANSWERED.sub("답:", text) + "\n" + "\n".join(risky)
+    return "\n".join(l for l in history_text.split("\n") if not l.startswith(("서비스 질문:", "서비스 답변:")))
 
 
 def hard_red_flags(history_text: str) -> list[str]:
     """안전망 규칙에 맞은 별표 1 항목 라벨을 모두 돌려준다(LLM 호출 없이 즉시). 없으면 빈 목록."""
-    text = _rule_text(history_text)
+    text = _user_statements(history_text)
     return list(dict.fromkeys(label for pattern, label in _HARD_FLAGS if pattern.search(text)))
 
 
@@ -75,10 +68,8 @@ def ask_followup(history_text: str, docs: list[dict]) -> Assessment:
     payload = f"[대화]\n{history_text}\n\n[근거 문서]\n{_docs_for_prompt(docs)}"
     # 가벼운 판단이라 빠른 모델을 쓴다 (응급 판정 check_red_flags 는 안전이 걸려 있어 메인 모델 유지)
     result = structured_chain("assess", Assessment, ASSESS_SYSTEM, fast=True).invoke({"input": payload})
-    for item in result.items:
-        item.text = item.text.strip()
-    result.items = [i for i in result.items if i.text][:2]
-    if not result.items:  # 질문이 없는데 부족하다고 하면 충분한 것으로 본다
+    result.questions = [q.strip() for q in result.questions if q.strip()][:2]
+    if not result.questions:  # 질문이 없는데 부족하다고 하면 충분한 것으로 본다
         result.enough_info = True
     return result
 

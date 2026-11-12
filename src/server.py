@@ -117,9 +117,9 @@ def _mock_response(req: QueryRequest) -> QueryResponse:
         ]
     elif any(k in q for k in ("배", "두통", "머리", "열", "설사", "토")):
         answer = (
-            "정확히 안내드리기 위해 몇 가지 여쭤볼게요. 아래 질문에 버튼을 누르거나 직접 입력해 답해 주세요.\n\n"
-            "1. 증상이 갑자기 시작됐나요? (예/아니오/모르겠어요)\n"
-            "2. 열이 있거나 구토, 목 뻣뻣함이 함께 있나요? (예/아니오/모르겠어요)\n\n"
+            "정확히 안내드리기 위해 몇 가지 여쭤볼게요.\n\n"
+            "1. 증상이 갑자기 시작됐나요, 서서히 시작됐나요?\n"
+            "2. 열이 있거나 구토, 목 뻣뻣함이 함께 있나요?\n\n"
             "모르시면 '모르겠어요'라고 답하셔도 됩니다."
         )
         contexts = [Context(doc_id="mplus-273-0", text="(mock) Headache: ... Get medical help right away if you have a headache after a head injury ...")]

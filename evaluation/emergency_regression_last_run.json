@@ -2,11 +2,11 @@
  "summary": {
   "run_date": "2026-11-12",
   "law_version": "보건복지부령 제1189호(2026-07-13 개정), 2026-08-14 시행",
-  "cases": 35,
-  "passed": 34,
-  "known_gaps": 1,
+  "cases": 33,
+  "passed": 33,
+  "known_gaps": 0,
   "failed": [],
-  "item_match": "24/24"
+  "item_match": "23/23"
  },
  "results": [
   {
@@ -139,7 +139,6 @@
    ],
    "matched_item_ids": [
     "A-다-1",
-    "A-가-1",
     "B-가-2"
    ],
    "item_match": true,
@@ -416,7 +415,8 @@
    "expected_item_ids": [],
    "matched_item_ids": [
     "A-다-3",
-    "A-가-1"
+    "A-가-1",
+    "B-가-2"
    ],
    "item_match": null,
    "error": null
@@ -483,7 +483,9 @@
    "expected_item_ids": [
     "B-가-2"
    ],
-   "matched_item_ids": [],
+   "matched_item_ids": [
+    "B-가-2"
+   ],
    "item_match": null,
    "error": null
   },
@@ -503,44 +505,14 @@
    "id": "N06",
    "basis": "negative",
    "expected": false,
-   "got": true,
-   "passed": false,
+   "got": false,
+   "passed": true,
    "known_gap": true,
    "expected_item_ids": [
     "B-나-1"
    ],
    "matched_item_ids": [
     "A-나-2"
-   ],
-   "item_match": null,
-   "error": null
-  },
-  {
-   "id": "E27",
-   "basis": "law",
-   "expected": true,
-   "got": true,
-   "passed": true,
-   "known_gap": false,
-   "expected_item_ids": [
-    "A-마-1"
-   ],
-   "matched_item_ids": [
-    "A-마-1"
-   ],
-   "item_match": true,
-   "error": null
-  },
-  {
-   "id": "E28",
-   "basis": "policy",
-   "expected": true,
-   "got": true,
-   "passed": true,
-   "known_gap": false,
-   "expected_item_ids": [],
-   "matched_item_ids": [
-    "A-가-1"
    ],
    "item_match": null,
    "error": null
