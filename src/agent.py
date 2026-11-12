@@ -3,7 +3,8 @@
 한 번의 요청이 지나가는 길:
   begin(개인정보 마스킹) -> classify(범위 분류)
      ├ 범위 밖/제공 불가            -> refuse
-     ├ (응급 안내 이후의 대화)      -> locate: 지역이면 응급의료기관 목록, 아니면 emergency_followup(짧은 이어가기 답변)
+     ├ 응급실 목록 요청 / 지역 답 / 응급 안내 이후의 대화 -> locate: 지역이면 응급의료기관 목록,
+     │      지역 없는 목록 요청이면 지역을 되묻고, 응급 대화 중이면 emergency_followup(짧은 이어가기 답변)
      └ 증상 -> triage(응급 점검 + 근거 검색, 병렬)
             ├ 응급                  -> emergency
             ├ 인젝션                -> refuse_injection
@@ -98,8 +99,9 @@ def route_after_classify(state: State) -> str:
     cat = state["scope"]["category"]
     if cat in ("out_of_scope", "unavailable"):
         return "refuse"
-    if state.get("emergency_active") and cat == "symptom":
-        return "locate"  # 응급 안내 뒤의 대화: 지역이면 기관 조회, 아니면 짧은 이어가기 답변
+    # 응급실 목록 요청, 지역 답변을 기다리는 중의 답, 응급 안내 뒤의 대화는 모두 locate 에서 먼저 처리한다
+    if cat == "er_lookup" or (cat == "symptom" and (state.get("emergency_active") or state.get("awaiting_location"))):
+        return "locate"
     return "triage"
 
 
@@ -110,10 +112,18 @@ def refuse(state: State) -> dict:
 
 
 def locate(state: State) -> dict:
-    """응급 안내 뒤의 메시지에서 지역을 찾아 응급의료기관 목록을 조회한다. 지역이 없으면 이어가기 답변으로 보낸다."""
+    """도구 find_emergency_rooms 의 입구: 메시지에서 지역을 찾아 응급의료기관 목록을 조회한다.
+
+    - 지역이 있으면 바로 조회한다 (응급 안내 뒤든, 처음부터 '응급실 알려줘'라고 물었든 같다).
+    - 응급실 목록을 물었는데 지역이 없으면('내 주변') 위치를 자동으로 알 수 없으니 지역을 되묻는다.
+    - 그 외(응급 대화 중이거나 지역 답을 기다리다 다른 증상을 말한 경우)는 다음 노드로 넘긴다.
+    """
     loc = tools.extract_location(state["question"])
     if not (loc.found and loc.sido):
-        return {"trace": _step(state, "find_emergency_rooms", state["question"], "지역 없음 -> 대화 이어가기")}
+        trace = _step(state, "find_emergency_rooms", state["question"], "지역 없음")
+        if state["scope"]["category"] == "er_lookup":
+            return {"answer": answers.compose_ask_region(), "awaiting_location": True, "last_kind": "locate_ask", "trace": trace}
+        return {"awaiting_location": bool(state.get("emergency_active") and state.get("awaiting_location")), "trace": trace}
     rooms = tools.find_emergency_rooms(loc.sido, loc.sigungu)
     names = ", ".join(r["name"] for r in rooms) or "결과 없음"
     return {
@@ -124,8 +134,10 @@ def locate(state: State) -> dict:
 
 
 def route_after_locate(state: State) -> str:
-    """지역 조회로 답이 만들어졌으면 마무리, 아니면 응급 대화 이어가기로."""
-    return "finalize" if state.get("answer") else "emergency_followup"
+    """답이 만들어졌으면 마무리, 응급 대화 중이면 이어가기 답변, 아니면 일반 증상 흐름으로."""
+    if state.get("answer"):
+        return "finalize"
+    return "emergency_followup" if state.get("emergency_active") else "triage"
 
 
 def emergency_followup(state: State) -> dict:
@@ -240,7 +252,7 @@ def build_graph():
     g.add_edge(START, "begin")
     g.add_edge("begin", "classify")
     g.add_conditional_edges("classify", route_after_classify, ["refuse", "locate", "triage"])
-    g.add_conditional_edges("locate", route_after_locate, ["finalize", "emergency_followup"])
+    g.add_conditional_edges("locate", route_after_locate, ["finalize", "emergency_followup", "triage"])
     g.add_edge("emergency_followup", "finalize")
     g.add_conditional_edges("triage", route_after_triage, ["emergency", "refuse_injection", "assess"])
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])

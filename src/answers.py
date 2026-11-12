@@ -79,6 +79,16 @@ def compose_recommendation(conditions: list[dict], departments: list[str], reaso
     return "\n\n".join(parts)
 
 
+def compose_ask_region() -> str:
+    """응급실 목록을 물었는데 지역이 없을 때: 위치는 자동으로 알 수 없으니 지역을 묻는다."""
+    return (
+        "가까운 응급의료기관을 찾아 드릴게요. 위치는 자동으로 알 수 없어서, 계신 지역(시/도, 시/군/구)을 알려 주세요. "
+        "예: 서울 종로구, 경기도 수원시 영통구\n\n"
+        "병상이나 대기 정보는 제공하지 않아요. 응급 상황이면 기다리지 말고 바로 119에 연락하세요.\n\n"
+        + DISCLAIMER
+    )
+
+
 def compose_rooms(sido: str, sigungu: str | None, rooms: list[dict]) -> str:
     """응급의료기관 목록 안내(병상 정보는 제공하지 않는다)."""
     place = f"{sido} {sigungu}".strip() if sigungu else sido

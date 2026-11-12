@@ -24,7 +24,7 @@
 - Day 4: **도구 다중(외부 API 포함)** — 응급 점검, 근거 검색, 되묻기, 관련 상태, 진료과 추천, 국립중앙의료원 응급의료기관 조회 ✅
 - Day 5: **가드레일·미들웨어** — 입력(개인정보 마스킹, 프롬프트 인젝션·범위 이탈 분류)과 출력(확률·안심·병명 단정·약 용량 표현 제거) 필터링 ✅
 - Day 5: **멀티턴 상태** — 되묻기·지역 답변 상태를 LangGraph 체크포인트(`session_id` → `thread_id`)로 유지 ✅ (HITL `interrupt()` 는 쓰지 않음)
-- Day 7: **Observability · Trace** — 응답의 `trace`(단계 이름 = 도구 이름) ✅ / LangSmith 트레이스는 환경 변수로 연결 🚧 확인 필요
+- Day 7: **Observability · Trace** — 응답의 `trace`(단계 이름 = 도구 이름) ✅ / LangSmith 에 실행 트레이스가 정상 기록되는 것을 확인함(2026-11-12) ✅
 - Day 7: **평가** — 자체 인-아웃 세트 + RAGAS + LLM-as-Judge 🚧
 - (인프라) Bedrock 호출 재시도 후 모델 폴백 ✅ — [src/llm.py](src/llm.py)
 - 쓰지 않은 패턴: **ReAct**(`bind_tools`로 모델이 도구를 고르게 하는 방식). 안전 정책(응급 점검 → 검색 → 되묻기 순서)을 코드로 보장하려고 LLM이 아니라 **LangGraph 그래프가 흐름을 정하고**, 각 단계의 판단만 LLM이 합니다.
@@ -123,10 +123,10 @@ uvicorn src.server:app --reload
 
 ## 인-아웃 세트 통과율 (자체 평가)
 
-세트: [evaluation/test_queries.csv](evaluation/test_queries.csv) (20건, 초안)
+세트: [evaluation/test_queries.csv](evaluation/test_queries.csv) (23건, 초안)
 
-- 1차 (Day 9 종료): - / 20 통과
-- 2차 (Day 10 개선 후): - / 20 통과
+- 1차 (Day 9 종료): - / 23 통과
+- 2차 (Day 10 개선 후): - / 23 통과
 - 개선폭: - 건 (주요 개선 사항: -)
 
 ### 응급 판정 회귀 테스트
