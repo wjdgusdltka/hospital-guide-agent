@@ -75,6 +75,12 @@ class VisitMemo(BaseModel):
     background: list[str] = Field(description="나이대, 임신 여부, 기저질환, 복용 중이라고 말한 약 같은 배경. 말한 것만")
 
 
+class SymptomSummary(BaseModel):
+    """지난 상담을 되짚는 인사말과 이력 제목에 쓸 증상 요약 한 줄."""
+
+    phrase: str = Field(description="사용자가 말한 증상을 줄인 짧은 명사구 하나 (15자 안팎, 예: 손등 열상(3cm), 3일째 목 통증)")
+
+
 class EmergencyReply(BaseModel):
     """응급 안내 뒤에 이어지는 대화에 대한 짧은 답변."""
 

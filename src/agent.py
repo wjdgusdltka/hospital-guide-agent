@@ -275,6 +275,19 @@ def triage(state: State) -> dict:
     return {"red": res.model_dump(), "docs": docs, "trace": trace}
 
 
+def _summarize_in_background(uid: str, session_id: str, statements: list[str]) -> None:
+    """진행 중 기록의 제목을 짧은 증상 명사구로 바꾼다. 답변을 늦추지 않으려고 별도 스레드에서 하고, 실패하면 임시 제목을 그대로 둔다."""
+    def work():
+        try:
+            phrase = tools.summarize_symptom(statements)
+            if phrase:
+                memory.refine_progress(uid, session_id, phrase)
+        except Exception:
+            log.warning("symptom summary failed; keeping the provisional title", exc_info=True)
+
+    threading.Thread(target=work, daemon=True, name="symptom-summary").start()
+
+
 def _save_progress(state: State, history_text: str) -> list[dict]:
     """장기 메모리: 상담이 끝나길 기다리지 않고 사용자 발화를 매 턴 '진행 중' 기록으로 저장한다. 갱신된 trace 를 돌려준다.
 
@@ -287,8 +300,12 @@ def _save_progress(state: State, history_text: str) -> list[dict]:
     if rec is None:
         return trace
     try:
-        saved = memory.save_progress(uid, state.get("session_id") or "default", rec)
+        sid = state.get("session_id") or "default"
+        saved = memory.save_progress(uid, sid, rec)
         out = f"{len(rec['statements'])}개 발화 저장" if saved else "이미 결론이 난 상담이라 유지"
+        if saved and memory.progress_needs_summary(uid, sid):
+            _summarize_in_background(uid, sid, rec["statements"])
+            out += " (증상 요약은 백그라운드에서)"
     except Exception as e:
         out = f"저장 실패({type(e).__name__}): 상담은 그대로 진행"
     return trace + [{"step": "save_memory", "input": "진행 중 상담 저장(장기 메모리)", "output": out}]

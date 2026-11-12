@@ -13,9 +13,9 @@ from . import config
 from .annex import annex_prompt_text, match_item_ids
 from .llm_chain import structured_chain
 from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, EMERGENCY_REPLY_SYSTEM, LOCATION_SYSTEM,
-                      MEMO_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM)
+                      MEMO_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM, SUMMARY_SYSTEM)
 from .schemas import (Assessment, DepartmentRec, EmergencyReply, LocationExtract, RedFlagResult, RelatedConditions,
-                      VisitMemo)
+                      SymptomSummary, VisitMemo)
 
 
 # ------------------------------------------------------------ check_red_flags
@@ -120,6 +120,15 @@ def recommend_department(history_text: str, docs: list[dict]) -> DepartmentRec:
 def make_visit_memo(history_text: str) -> VisitMemo:
     """대화에서 사용자가 말한 증상·기간·배경만 뽑아 병원에서 보여 줄 진료 메모를 만든다 (빠른 모델, 진단 없음)."""
     return structured_chain("memo", VisitMemo, MEMO_SYSTEM, fast=True).invoke({"input": history_text})
+
+
+# --------------------------------------------------------- summarize_symptom
+def summarize_symptom(statements: list[str]) -> str:
+    """사용자가 말한 문장들을 이력 제목·인사말에 쓸 짧은 증상 명사구로 줄인다(빠른 모델). 실패하거나 너무 길면 빈 문자열."""
+    text = "\n".join(f"사용자: {s}" for s in statements)
+    phrase = structured_chain("symptom_summary", SymptomSummary, SUMMARY_SYSTEM, fast=True).invoke({"input": text}).phrase.strip()
+    phrase = phrase.strip("\"'“”‘’ .")
+    return phrase if 1 <= len(phrase) <= 30 else ""
 
 
 # ----------------------------------------------------------- emergency_followup

@@ -5,9 +5,11 @@
 - 대화 안의 단기 기억(체크포인터, session_id)과 별개로, 이 모듈은 '대화가 끝난 뒤에도 남는 요약'만 다룬다.
 - 저장하는 것: 진료 메모에서 가져온 요약(증상·기간·안내 결과)과 진료 메모 원문(이력에서 진료 카드를 다시 보려고),
   그리고 상담이 끝나기 전 '진행 중' 기록(사용자가 쓴 문장 최대 6개, 개인정보는 마스킹된 것). AI 답변 원문은 저장하지 않는다.
-- 진행 중 기록은 증상 점검이 시작될 때 바로 저장되고(LLM 호출 없음), 상담이 끝나면 같은 키로 최종 기록이 덮어쓴다.
+- 진행 중 기록은 증상 점검이 시작될 때 바로 저장되고(저장 자체는 LLM 호출 없음), 제목은 처음엔 첫 문장 조각이다가
+  빠른 모델이 백그라운드에서 짧은 증상 명사구로 바꾼다(답변을 늦추지 않음). 상담이 끝나면 같은 키로 최종 기록이 덮어쓴다.
 - 이름은 로그인 같은 인증이 아니다. 같은 이름이면 같은 이력을 본다(학습용). 이름은 LLM 에 보내지 않는다.
 """
+import re
 import threading
 import unicodedata
 from datetime import datetime
@@ -16,6 +18,7 @@ from . import config
 
 _STORE = None
 _LOCK = threading.Lock()
+_RW_LOCK = threading.Lock()  # 진행 중 기록의 읽고-고쳐-쓰기(대화 저장과 백그라운드 요약이 겹쳐도 서로 덮어쓰지 않게)
 
 LEVEL_LABEL = {"urgent": "응급실 안내(긴급)", "advise": "응급실 방문 권유", "recommend": "진료과 안내",
                "in_progress": "상담 중 (이어서 가능)"}
@@ -59,6 +62,12 @@ def _ns(uid: str) -> tuple[str, str]:
 
 
 # ------------------------------------------------------------------ 기록 만들기 / 저장 / 조회
+def _short_phrase(text: str, limit: int = 24) -> str:
+    """요약(LLM)이 만들어지기 전에 쓰는 임시 제목: 첫 문장 조각(쉼표·물음표·마침표 앞까지)을 짧게 자른다."""
+    s = re.split(r"[,.?!，。？！]", text.strip(), maxsplit=1)[0].strip() or text.strip()
+    return s if len(s) <= limit else s[:limit].rstrip() + "…"
+
+
 def _statements(history_text: str) -> list[str]:
     """대화 기록에서 사용자가 한 말만 뽑는다(이미 개인정보가 마스킹된 문장)."""
     return [l[4:].strip()[:120] for l in history_text.split("\n") if l.startswith("사용자:") and l[4:].strip()]
@@ -74,7 +83,7 @@ def build_record(level: str, memo, departments: list[str], history_text: str, me
         onset = memo.onset_duration or ""
     else:
         first = next(iter(_statements(history_text)), "")
-        symptoms, onset = ([first[:40]] if first else []), ""
+        symptoms, onset = ([_short_phrase(first)] if first else []), ""
     return {"ts": datetime.now().astimezone().isoformat(timespec="seconds"), "level": level,
             "symptoms": symptoms, "onset": onset, "departments": list(departments)[:2], "memo": memo_text or ""}
 
@@ -85,7 +94,8 @@ def build_progress(history_text: str) -> dict | None:
     if not sts:
         return None
     return {"ts": datetime.now().astimezone().isoformat(timespec="seconds"), "level": "in_progress",
-            "symptoms": [sts[0][:40]], "onset": "", "departments": [], "memo": "", "statements": sts[-MAX_STATEMENTS:]}
+            "symptoms": [_short_phrase(sts[0])], "summary_done": False, "onset": "", "departments": [], "memo": "",
+            "statements": sts[-MAX_STATEMENTS:]}
 
 
 def save_consultation(uid: str, session_id: str, record: dict) -> None:
@@ -94,11 +104,33 @@ def save_consultation(uid: str, session_id: str, record: dict) -> None:
 
 
 def save_progress(uid: str, session_id: str, record: dict) -> bool:
-    """진행 중 기록을 저장한다. 이미 결론이 난 기록은 덮어쓰지 않는다(결론이 더 쓸모 있다). 저장했으면 True."""
+    """진행 중 기록을 저장한다. 이미 결론이 난 기록은 덮어쓰지 않는다(결론이 더 쓸모 있다). 저장했으면 True.
+
+    같은 대화의 앞 기록에 이미 요약(summary_done)이 있으면 그 요약 제목을 그대로 이어 받는다(턴마다 다시 요약하지 않는다).
+    """
+    with _RW_LOCK:
+        cur = get_store().get(_ns(uid), session_id)
+        if cur is not None and cur.value.get("level") != "in_progress":
+            return False
+        if cur is not None and cur.value.get("summary_done"):
+            record = {**record, "symptoms": cur.value["symptoms"], "summary_done": True}
+        get_store().put(_ns(uid), session_id, record)
+    return True
+
+
+def progress_needs_summary(uid: str, session_id: str) -> bool:
+    """이 대화의 진행 중 기록이 아직 요약 제목을 못 받았는가."""
     cur = get_store().get(_ns(uid), session_id)
-    if cur is not None and cur.value.get("level") != "in_progress":
-        return False
-    get_store().put(_ns(uid), session_id, record)
+    return bool(cur is not None and cur.value.get("level") == "in_progress" and not cur.value.get("summary_done"))
+
+
+def refine_progress(uid: str, session_id: str, phrase: str) -> bool:
+    """진행 중 기록의 제목을 요약 명사구로 바꾼다. 그 사이 결론이 났거나 기록이 없으면 건드리지 않는다. 바꿨으면 True."""
+    with _RW_LOCK:
+        cur = get_store().get(_ns(uid), session_id)
+        if cur is None or cur.value.get("level") != "in_progress":
+            return False
+        get_store().put(_ns(uid), session_id, {**cur.value, "symptoms": [phrase], "summary_done": True})
     return True
 
 
@@ -139,7 +171,10 @@ def _when(rec: dict) -> str:
 
 
 def symptom_text(rec: dict) -> str:
-    s = ", ".join(rec.get("symptoms") or []) or "불편한 증상"
+    syms = rec.get("symptoms") or []
+    if rec.get("level") == "in_progress" and not rec.get("summary_done"):  # 요약 전 기록(옛 기록 포함)은 읽을 때도 문장 조각으로 다듬는다
+        syms = [_short_phrase(x) for x in syms]
+    s = ", ".join(syms) or "불편한 증상"
     return f"{s}({rec['onset']})" if rec.get("onset") else s
 
 
@@ -157,7 +192,9 @@ def greeting(display_name: str, rec: dict | None) -> str:
         return f"{display_name}님, 안녕하세요. 어디가 불편하신가요?"
     head, sym = f"{display_name}님, 안녕하세요. {_when(rec)}에", symptom_text(rec)
     if rec["level"] == "in_progress":
-        return f"{head} {sym} 때문에 상담하시다가 안내를 받기 전에 끝났어요. 이어서 도와드릴게요. 그 뒤로 증상이 어떠세요?"
+        if rec.get("summary_done"):  # 요약된 짧은 증상명
+            return f"{head} “{sym}” 때문에 상담하시다가 안내를 받기 전에 끝났어요. 그 뒤로 어떠세요? 이어서 도와드릴게요."
+        return f"{head} “{sym}” 이야기를 하시다가 안내를 받기 전에 끝났어요. 그 뒤로 어떠세요? 이어서 도와드릴게요."
     if rec["level"] in ("urgent", "advise"):
         return f"{head} {sym} 때문에 응급실 방문을 안내드렸어요. 응급실에서 진료는 받으셨나요? 지금은 어떠세요?"
     dept = " 또는 ".join(rec.get("departments") or [])
