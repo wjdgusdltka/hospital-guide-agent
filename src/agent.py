@@ -183,13 +183,27 @@ def route_after_triage(state: State) -> str:
     return "assess"
 
 
+def _safe_memo(history_text: str):
+    """도구 make_visit_memo 를 호출하되, 실패해도 본 답변은 막지 않는다(메모만 생략)."""
+    try:
+        return tools.make_visit_memo(history_text)
+    except Exception:
+        return None
+
+
 def emergency(state: State) -> dict:
-    """응급 권고: 별표 1 근거를 보여주고 지역을 묻는다. 다음 턴의 지역 답변을 기다린다."""
+    """응급 권고: 별표 1 근거를 보여주고, 병원에서 보여 줄 진료 메모를 붙이고, 지역을 묻는다. 다음 턴의 지역 답변을 기다린다."""
     red = state["red"]
-    annex = retriever.search_annex(_history_text(state))
-    text = answers.compose_emergency(red["matched_items"], red["reason"], state.get("notes", []))
+    text_in = _history_text(state)
+    with ThreadPoolExecutor(max_workers=2) as pool:  # 근거 검색과 메모 생성은 서로 독립이라 동시에 실행
+        f_annex, f_memo = pool.submit(retriever.search_annex, text_in), pool.submit(_safe_memo, text_in)
+        annex, memo = f_annex.result(), f_memo.result()
+    guidance = "응급 신호 의심" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
+    memo_text = answers.compose_memo(memo, guidance)
+    text = answers.compose_emergency(red["matched_items"], red["reason"], state.get("notes", []), memo_text)
+    trace = _step(state, "make_visit_memo", "대화에서 사용자가 말한 내용 정리", "메모 생성" if memo_text else "메모 생략")
     return {"answer": text, "contexts": _contexts(annex), "emergency_active": True, "awaiting_location": True,
-            "followup_turns": 0, "last_kind": "emergency"}
+            "followup_turns": 0, "last_kind": "emergency", "trace": trace}
 
 
 def refuse_injection(state: State) -> dict:
@@ -220,18 +234,24 @@ def route_after_assess(state: State) -> str:
 
 
 def recommend(state: State) -> dict:
-    """도구 find_related_conditions 와 recommend_department 를 동시에 실행해 비응급 안내를 만든다."""
+    """도구 find_related_conditions, recommend_department, make_visit_memo 를 동시에 실행해 비응급 안내를 만든다."""
     text, docs = _history_text(state), state["docs"]
-    with ThreadPoolExecutor(max_workers=2) as pool:  # 두 LLM 호출을 병렬로
+    with ThreadPoolExecutor(max_workers=3) as pool:  # 세 LLM 호출은 서로 독립이라 병렬로
         f_cond = pool.submit(tools.find_related_conditions, text, docs)
         f_dept = pool.submit(tools.recommend_department, text, docs)
-        conditions, dept = f_cond.result(), f_dept.result()
+        f_memo = pool.submit(_safe_memo, text)
+        conditions, dept, memo = f_cond.result(), f_dept.result(), f_memo.result()
+    guidance = "진료과 후보: " + ", ".join(dept.departments)  # '응급 아님'이라고 단정하는 문구는 의사가 보는 메모에 넣지 않는다
+    memo_text = answers.compose_memo(memo, guidance)
     answer = answers.compose_recommendation(
         conditions, dept.departments, dept.reason, dept.watch_signs,
-        state["scope"].get("conservative", False), state.get("notes", []),
+        state["scope"].get("conservative", False), state.get("notes", []), memo_text,
     )
     trace = _step(state, "find_related_conditions", "근거 문서에서 후보 추출", ", ".join(c["name_ko"] for c in conditions) or "없음")
-    trace = trace + [{"step": "recommend_department", "input": "증상과 관련 상태", "output": _clip(f"{dept.departments}: {dept.reason}")}]
+    trace = trace + [
+        {"step": "recommend_department", "input": "증상과 관련 상태", "output": _clip(f"{dept.departments}: {dept.reason}")},
+        {"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"},
+    ]
     return {"answer": answer, "trace": trace, "followup_turns": 0, "last_kind": "answer"}
 
 

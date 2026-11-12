@@ -13,8 +13,9 @@ from . import config
 from .annex import annex_prompt_text
 from .llm_chain import structured_chain
 from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, EMERGENCY_REPLY_SYSTEM, LOCATION_SYSTEM,
-                      RELATED_SYSTEM, REDFLAG_SYSTEM)
-from .schemas import (Assessment, DepartmentRec, EmergencyReply, LocationExtract, RedFlagResult, RelatedConditions)
+                      MEMO_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM)
+from .schemas import (Assessment, DepartmentRec, EmergencyReply, LocationExtract, RedFlagResult, RelatedConditions,
+                      VisitMemo)
 
 
 # ------------------------------------------------------------ check_red_flags
@@ -81,6 +82,12 @@ def recommend_department(history_text: str, docs: list[dict]) -> DepartmentRec:
     result.departments = [d for d in result.departments if d in DEPARTMENTS][:2] or ["가정의학과"]
     result.watch_signs = [s.strip() for s in result.watch_signs if s.strip()][:3]
     return result
+
+
+# ------------------------------------------------------------- make_visit_memo
+def make_visit_memo(history_text: str) -> VisitMemo:
+    """대화에서 사용자가 말한 증상·기간·배경만 뽑아 병원에서 보여 줄 진료 메모를 만든다 (빠른 모델, 진단 없음)."""
+    return structured_chain("memo", VisitMemo, MEMO_SYSTEM, fast=True).invoke({"input": history_text})
 
 
 # ----------------------------------------------------------- emergency_followup

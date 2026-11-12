@@ -59,6 +59,16 @@ class DepartmentRec(BaseModel):
     watch_signs: list[str] = Field(description="이런 경우에는 바로 응급실로 가야 하는 신호 3개 이내")
 
 
+class VisitMemo(BaseModel):
+    """병원에서 의사에게 보여 줄 진료 메모. 사용자가 대화에서 직접 말한 내용만 담는다 (진단·추측 없음)."""
+
+    chief_complaints: list[str] = Field(description="사용자가 말한 주 증상 1~3개 (짧은 구, 예: 목이 따가움)")
+    onset_duration: str | None = Field(default=None, description="시작 시점이나 지속 기간을 말했을 때만 (예: 3일 전부터). 모르면 null")
+    related_symptoms: list[str] = Field(description="함께 있다고 말한 증상. 없으면 빈 목록")
+    denied_symptoms: list[str] = Field(description="없다고 말한 증상 (예: 열 없음). 없으면 빈 목록")
+    background: list[str] = Field(description="나이대, 임신 여부, 기저질환, 복용 중이라고 말한 약 같은 배경. 말한 것만")
+
+
 class EmergencyReply(BaseModel):
     """응급 안내 뒤에 이어지는 대화에 대한 짧은 답변."""
 

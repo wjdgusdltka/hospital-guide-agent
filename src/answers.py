@@ -20,7 +20,28 @@ DOSAGE_NOTE = "약의 종류나 복용량은 안내해 드릴 수 없어요. 약
 DIAGNOSIS_NOTE = "병명을 확정하거나 확률로 말씀드릴 수는 없어요."
 
 
-def compose_emergency(matched: list[str], reason: str, notes: list[str]) -> str:
+def compose_memo(memo, guidance: str) -> str:
+    """진료 메모 문단. 사용자가 말한 내용만 항목별로 적고, 마지막에 서비스의 참고용 안내 내용을 덧붙인다.
+
+    UI 는 '**진료 메모'로 시작하는 문단을 찾아 복사 버튼이 있는 카드로 보여준다. 주 증상이 없으면 빈 문자열(메모 생략).
+    """
+    if memo is None or not memo.chief_complaints:
+        return ""
+    lines = ["**진료 메모 (병원에서 의사에게 보여 주세요)**", "- 주 증상: " + ", ".join(memo.chief_complaints)]
+    if memo.onset_duration:
+        lines.append(f"- 시작·기간: {memo.onset_duration}")
+    if memo.related_symptoms:
+        lines.append("- 함께 있는 증상: " + ", ".join(memo.related_symptoms))
+    if memo.denied_symptoms:
+        lines.append("- 없다고 한 증상: " + ", ".join(memo.denied_symptoms))
+    if memo.background:
+        lines.append("- 배경(나이·임신·기저질환·복용 약): " + ", ".join(memo.background))
+    lines.append(f"- 서비스 안내(참고용): {guidance}")
+    lines.append("- 이 메모는 사용자가 말한 내용만 정리한 것이며 진단이 아닙니다.")
+    return "\n".join(lines)
+
+
+def compose_emergency(matched: list[str], reason: str, notes: list[str], memo_text: str = "") -> str:
     """응급 권고. 첫 문단이 핵심 메시지(UI가 크게 보여준다). 별표 1 근거와 지역 질문을 덧붙인다."""
     parts = ["🚨 응급 신호가 의심됩니다. 지금 바로 119에 연락하거나 가까운 응급실을 이용하세요."]
     basis = ""
@@ -35,6 +56,8 @@ def compose_emergency(matched: list[str], reason: str, notes: list[str]) -> str:
     if notes:
         parts.append(" ".join(notes))
     parts.append("지역(시/도, 시/군/구)을 알려주시면 해당 지역의 응급의료기관을 안내해 드릴게요.")
+    if memo_text:
+        parts.append(memo_text)
     parts.append(DISCLAIMER)
     return "\n\n".join(parts)
 
@@ -60,14 +83,15 @@ def compose_followup(questions: list[str], notes: list[str]) -> str:
 
 
 def compose_recommendation(conditions: list[dict], departments: list[str], reason: str,
-                           watch_signs: list[str], conservative: bool, notes: list[str]) -> str:
+                           watch_signs: list[str], conservative: bool, notes: list[str], memo_text: str = "") -> str:
     """비응급 안내: 관련 상태(참고) + 진료과 후보 + 응급실 안전망 + 고지."""
     parts = []
     if notes:
         parts.append(" ".join(notes))
-    parts.append("말씀해 주신 내용에서는 응급 신호가 확인되지 않았어요.")
+    # 응급이 아니라고 단정하지 않는다: 입력된 내용만으로는 뚜렷하지 않다고만 말하고, 아래 안전망으로 이어간다
+    parts.append("말씀해 주신 내용만으로는 응급 신호가 뚜렷하게 보이지 않아요.")
     if conditions:
-        lines = [f"- {c['name_ko']} ({c['name_en']}, 출처: {c['source']})" for c in conditions]
+        lines = [f"- {c['name_ko']} ({c['name_en']})" for c in conditions]  # 출처는 본문에 적지 않고 '근거 문서'(contexts)로 제공
         parts.append("**관련될 수 있는 상태(참고)**\n" + "\n".join(lines))
     dept = " 또는 ".join(departments)
     parts.append(f"**진료과 후보**\n- {dept}" + (f"\n{reason}" if reason else ""))
@@ -75,6 +99,8 @@ def compose_recommendation(conditions: list[dict], departments: list[str], reaso
         parts.append("**이런 경우에는 바로 응급실을 이용하세요**\n" + "\n".join(f"- {s}" for s in watch_signs))
     if conservative:
         parts.append("확인하지 못한 정보가 있어 보수적으로 안내드렸어요. 증상이 심해지거나 걱정되면 가까운 의료기관에 문의하거나 응급실을 이용하세요.")
+    if memo_text:
+        parts.append(memo_text)
     parts.append(DISCLAIMER)
     return "\n\n".join(parts)
 

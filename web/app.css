@@ -42,7 +42,7 @@
 html { background: var(--ground); }
 body { background: var(--ground); }
 /* Korean breaks between words, not inside them. */
-.bubble, .alert-lead, .lead, .notice, .brand p, .item, .fine, .chip, .empty h2 { word-break: keep-all; }
+.bubble, .alert-lead, .lead, .notice, .brand p, .item, .fine, .chip, .empty h2, .memo, .room { word-break: keep-all; }
 
 /* Shell: one centred column, top bar, notice, scrolling chat, composer. */
 /* Phone-sized column: full screen on a phone, one rounded card centred on a larger screen. */
@@ -77,6 +77,7 @@ body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr);
 
 /* Controls: moulded plastic, 44px hit target, sinks on press. */
 .btn {
+  display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
   min-height: 44px; padding: 0 var(--space-md); border: 0; border-radius: var(--radius-input);
   font: 500 var(--text-md) var(--font-body); cursor: pointer; color: var(--color-ink);
   background: var(--surface);
@@ -109,7 +110,7 @@ body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr);
 .empty h2 { font-size: var(--text-xl); max-width: 22ch; margin-bottom: var(--space-xs); }
 .empty .lead { color: var(--color-muted); font-size: var(--text-md); }
 .chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-xs); margin-top: var(--space-lg); }
-.chip { text-align: left; min-height: 52px; padding: var(--space-xs) var(--space-md); line-height: 1.35; }
+.chip { justify-content: flex-start; text-align: left; min-height: 52px; padding: var(--space-xs) var(--space-md); line-height: 1.35; }
 
 .row { display: flex; margin: var(--space-sm) 0; animation: rise var(--dur-short) var(--ease-out) both; }
 .row--user { justify-content: flex-end; }
@@ -142,6 +143,35 @@ body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr);
 .alert-lead { margin: 0; font: 700 var(--text-xl) / 1.25 var(--font-display); letter-spacing: var(--tracking-display); max-width: none; white-space: pre-wrap; }
 .alert-lead .n119 { font-size: 1.35em; color: var(--band-mark); font-variant-numeric: tabular-nums; }
 .alert-rest { margin-top: var(--space-sm); padding-left: calc(36px + var(--space-sm)); }
+
+/* Small controls (call, map, copy) and the 119 call button on the emergency band */
+.btn--sm { padding: 0 var(--space-sm); font-size: var(--text-sm); }
+.btn--call {
+  margin-top: var(--space-md); color: var(--color-accent-ink); background: var(--alert-badge);
+  box-shadow: inset 0 1px 0 var(--glint);
+}
+.btn--call:hover { background: var(--alert-badge); filter: brightness(1.08); }
+.btn--call:active { box-shadow: inset 0 1px 0 var(--glint); }
+
+/* Emergency room list: rows split by hairlines inside the answer, each with call and map buttons */
+.part + .part, .part + .rooms, .rooms + .part { margin-top: var(--space-sm); }
+.room { padding: var(--space-sm) 0; border-top: var(--rule-hair) solid var(--color-rule); }
+.room:first-child { padding-top: 0; border-top: 0; }
+.room-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); }
+.room-name { font-weight: 700; }
+.room-kind { font-size: var(--text-xs); color: var(--color-muted); }
+.room-addr { margin: var(--space-2xs) 0 var(--space-xs); font-size: var(--text-sm); color: var(--color-ink-2); }
+.room-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+
+/* Visit memo: a paper label under the answer, with a tear-off rule */
+.memo { margin-top: var(--space-xs); padding: var(--space-md); background: var(--surface); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); }
+.memo-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding-bottom: var(--space-xs); border-bottom: var(--rule-hair) dashed var(--color-rule); }
+.memo-title { font-size: var(--text-lg); max-width: none; }
+.memo-hint { margin-top: var(--space-xs); font-size: var(--text-sm); color: var(--color-muted); }
+.memo-list { margin: var(--space-sm) 0 0; }
+.memo-list dt { font-size: var(--text-sm); color: var(--color-muted); }
+.memo-list dd { margin: 0 0 var(--space-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.memo-note { margin-top: var(--space-xs); font-size: var(--text-xs); color: var(--color-muted); }
 
 /* Disclosures under an answer */
 .details { margin-top: var(--space-2xs); font-size: var(--text-sm); color: var(--color-muted); }

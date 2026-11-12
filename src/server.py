@@ -103,7 +103,7 @@ def _mock_response(req: QueryRequest) -> QueryResponse:
         ]
     else:
         answer = (
-            "[MOCK] 응급 신호는 보이지 않습니다.\n\n"
+            "[MOCK] 말씀해 주신 내용만으로는 응급 신호가 뚜렷하게 보이지 않아요.\n\n"
             "**관련될 수 있는 상태(참고)**\n- 긴장성 두통 (예시)\n- 수면 부족 (예시)\n\n"
             "**진료과 후보**\n- 가정의학과 또는 내과\n\n"
             "증상이 심해지거나 위험 신호가 생기면 바로 응급실을 이용하세요.\n\n" + DISCLAIMER
