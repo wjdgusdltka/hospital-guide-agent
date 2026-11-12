@@ -288,7 +288,12 @@ body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr);
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
 .sheet-head h2 { font-size: var(--text-xl); max-width: none; }
 .sheet-body { overflow-y: auto; display: grid; align-content: start; gap: var(--space-xs); }
-.sheet-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-sm); }
+.sheet-foot { display: grid; gap: var(--space-xs); }
+.sheet-foot .btn { justify-self: end; white-space: nowrap; }
+.hist-del { margin-left: auto; min-height: 32px; padding-inline: var(--space-xs); white-space: nowrap; color: var(--color-error); }
+.hist-top .hist-del { flex: none; }
+.modal-actions { display: flex; justify-content: flex-end; }
+.modal-actions .btn { white-space: nowrap; }
 .sheet-note { margin: 0; font-size: var(--text-xs); color: var(--color-muted); max-width: none; }
 
 /* A past consultation: date, outcome tag, symptoms, suggested departments */

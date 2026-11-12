@@ -82,7 +82,12 @@ def main() -> int:
     s = memory.summarize(memory.list_consultations("길동")[0])
     check("요약에 진료 메모 원문이 들어 있음", s["memo"].startswith("**진료 메모") and s["level_label"] == "진료과 안내", str(s))
 
-    print(f"\n{10 - bad}/10 통과")
+    # 6) 개별 삭제
+    gone = memory.delete_one("길동", "s1")
+    check("상담 한 건을 지우면 목록에서 사라지고 없는 건은 False", gone and memory.list_consultations("길동") == []
+          and memory.delete_one("길동", "s1") is False)
+
+    print(f"\n{11 - bad}/11 통과")
     return 1 if bad else 0
 
 

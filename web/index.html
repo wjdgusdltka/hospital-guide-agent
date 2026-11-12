@@ -197,6 +197,12 @@
       const top = el("div", "hist-top");
       top.appendChild(el("span", "tag tag--" + c.level, c.level_label));
       top.appendChild(el("span", "hist-when", c.when));
+      const del = el("button", "btn btn--sm hist-del", "삭제");
+      del.type = "button";
+      del.setAttribute("aria-label", c.when + " 상담 기록 삭제");
+      del.addEventListener("click", (e) => { e.stopPropagation(); deleteOne(c); });
+      del.addEventListener("keydown", (e) => e.stopPropagation());
+      top.appendChild(del);
       box.appendChild(top);
       box.appendChild(el("p", "hist-sym", c.symptoms));
       if (c.departments && c.departments.length) box.appendChild(el("p", "hist-dept", "안내한 진료과: " + c.departments.join(", ")));
@@ -252,12 +258,26 @@
       } else {
         body.appendChild(el("p", "hist-dept", "이 상담에는 저장된 진료 카드가 없어요."));
       }
+      const act = el("div", "modal-actions");
+      const dbtn = el("button", "btn btn--sm hist-del", "이 기록 삭제");
+      dbtn.type = "button";
+      dbtn.addEventListener("click", () => deleteOne(c));
+      act.appendChild(dbtn);
+      body.appendChild(act);
       detail.hidden = false;
       document.getElementById("closeDetail").focus();
     }
     function closeDetail() {
       detail.hidden = true;
       if (detailOpener && detailOpener.isConnected) detailOpener.focus();
+    }
+    // 상담 한 건 삭제: 확인 뒤 지우고, 열려 있는 목록(이력 화면 또는 첫 화면 요약)을 다시 그린다
+    async function deleteOne(c) {
+      if (!user || !confirm(c.when + " 상담 기록을 지울까요? 되돌릴 수 없어요.")) return;
+      try { await postJSON("/memory/delete", { name: user, id: c.id }); } catch (_) {}
+      const sheetOpen = !sheet.hidden;
+      detail.hidden = true;
+      if (sheetOpen) await openSheet(); else await showEmpty();
     }
     document.getElementById("closeDetail").addEventListener("click", closeDetail);
     detail.addEventListener("click", (e) => { if (e.target === detail) closeDetail(); });

@@ -130,6 +130,17 @@ def history(req: NameRequest) -> HistoryResponse:
                            consultations=[memory.summarize(r) for r in rows])
 
 
+class DeleteRequest(NameRequest):
+    id: str  # 지울 상담의 id (목록의 id 값)
+
+
+@app.post("/memory/delete")
+def delete_history(req: DeleteRequest) -> dict:
+    """이 사용자의 상담 한 건을 지운다."""
+    uid, _ = _user(req)
+    return {"deleted": 1 if memory.delete_one(uid, req.id) else 0}
+
+
 @app.post("/memory/clear")
 def clear_history(req: NameRequest) -> dict:
     """이 사용자의 저장된 상담 이력을 모두 지운다."""

@@ -114,6 +114,15 @@ def latest(uid: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def delete_one(uid: str, session_id: str) -> bool:
+    """상담 한 건을 지운다. 있었으면 True."""
+    store = get_store()
+    existed = store.get(_ns(uid), session_id) is not None
+    if existed:
+        store.delete(_ns(uid), session_id)
+    return existed
+
+
 def clear(uid: str) -> int:
     """사용자의 상담 이력을 모두 지운다. 지운 건수를 돌려준다."""
     store = get_store()
