@@ -9,6 +9,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700&family=Instrument+Sans:wght@400;500&family=DM+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="app.css">
+  <script>
+    // 저장된 화면 모드가 있으면 첫 그림 전에 적용한다 (없으면 시스템 설정을 따른다)
+    try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (_) {}
+  </script>
 </head>
 <body>
   <div class="app">
@@ -31,6 +35,17 @@
       </div>
     </header>
 
+    <nav class="userbar" aria-label="사용자 메뉴">
+      <span class="who" id="who"></span>
+      <div class="userbar-actions">
+        <button class="btn btn--sm" id="openHistory" type="button">이력 불러오기</button>
+        <button class="btn btn--sm" id="switchUser" type="button">사용자 전환</button>
+        <button class="btn btn--sm btn--icon" id="themeBtn" type="button" aria-label="밝은 화면과 어두운 화면 전환" title="밝게/어둡게">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
+    </nav>
+
     <p class="notice">개인 학습용 프로젝트입니다. 안내는 <b>단순 참고용</b>이며 의사의 진단을 대신하지 않습니다. 응급이 의심되면 즉시 <b>119</b>에 연락하세요.</p>
 
     <main class="chat" id="chat" aria-live="polite"></main>
@@ -42,6 +57,35 @@
       </div>
       <p class="fine"><span class="hint">Enter로 전송하고 Shift+Enter로 줄을 바꿉니다. </span>이 서비스는 의료 서비스가 아니며 정확성을 보장하지 않습니다.</p>
     </form>
+
+    <!-- 과거 상담 이력 -->
+    <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+      <div class="sheet-head">
+        <h2 id="sheetTitle">과거 상담 이력</h2>
+        <button class="btn btn--sm" id="closeSheet" type="button">닫기</button>
+      </div>
+      <div class="sheet-body" id="sheetBody"></div>
+      <div class="sheet-foot">
+        <p class="sheet-note">증상 요약과 안내 결과만 이 서버에 저장돼요. 대화 원문은 저장하지 않아요.</p>
+        <button class="btn btn--sm" id="clearHistory" type="button">모두 지우기</button>
+      </div>
+    </section>
+
+    <!-- 사용자 이름 입력 (인증 아님) -->
+    <section class="login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" hidden>
+      <div class="login-card">
+        <h2 id="loginTitle">이름을 알려 주세요</h2>
+        <p class="lead">지난 상담을 이어서 안부를 여쭙기 위해 이름을 받아요. 별칭도 괜찮고, 실명보다 별칭을 권해요.</p>
+        <form id="loginForm" class="field" autocomplete="off">
+          <label for="nameInput">이름</label>
+          <input id="nameInput" type="text" maxlength="20" placeholder="예: 길동" required>
+          <p class="login-error" id="loginError" role="alert"></p>
+          <button class="btn btn--primary" type="submit">시작하기</button>
+        </form>
+        <button class="btn" id="guest" type="button">이름 없이 둘러보기 (이력 저장 안 함)</button>
+        <p class="fine">로그인 같은 인증이 아니라서, 같은 이름이면 같은 이력을 봅니다. 상담 요약(증상·안내 결과)이 이 서버에 저장되며 언제든 지울 수 있어요. 응급이 의심되면 위의 119 버튼을 누르세요.</p>
+      </div>
+    </section>
   </div>
 
   <script>
@@ -105,8 +149,67 @@
 
     function scrollDown() { chat.scrollTop = chat.scrollHeight; }
 
-    function showEmpty() {
+    // ---- 사용자(장기 메모리): 이름만 받는다. 인증이 아니고 같은 이름이면 같은 이력을 본다.
+    // 패널(로그인·이력)은 상단 막대와 사용자 막대(119, 화면 모드 버튼이 있는 곳) 아래를 덮는다
+    const userbar = document.querySelector(".userbar");
+    function syncTop() { document.documentElement.style.setProperty("--top", (userbar.offsetTop + userbar.offsetHeight) + "px"); }
+    window.addEventListener("resize", syncTop);
+
+    let user = null;           // 표시 이름. null 이면 비로그인(이력 저장 안 함)
+    let hist = { greeting: null, consultations: [] };
+    try { user = localStorage.getItem("user") || null; } catch (_) {}
+
+    async function postJSON(path, body) {
+      const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) { let d = ""; try { d = (await res.json()).detail || ""; } catch (_) {} throw new Error(d || "서버 응답 오류 (" + res.status + ")"); }
+      return res.json();
+    }
+
+    async function refreshHistory() {
+      if (!user) { hist = { greeting: null, consultations: [] }; return; }
+      try { hist = await postJSON("/memory/history", { name: user }); } catch (_) { hist = { greeting: null, consultations: [] }; }
+    }
+
+    function renderWho() {
+      document.getElementById("who").textContent = user ? user + " 님" : "이름 없이 이용 중";
+      document.getElementById("openHistory").disabled = !user;
+    }
+
+    // 상담 한 건: 날짜 · 안내 결과 · 증상 · 진료과 (이력 패널과 첫 화면 요약이 같이 쓴다)
+    function histItem(c, tag) {
+      const box = el(tag === "li" ? "li" : "div", tag === "li" ? "" : "hist");
+      const top = el("div", "hist-top");
+      top.appendChild(el("span", "tag tag--" + c.level, c.level_label));
+      top.appendChild(el("span", "hist-when", c.when));
+      box.appendChild(top);
+      box.appendChild(el("p", "hist-sym", c.symptoms));
+      if (c.departments && c.departments.length) box.appendChild(el("p", "hist-dept", "안내한 진료과: " + c.departments.join(", ")));
+      return box;
+    }
+
+    // 새 대화 첫 화면: 안부 인사 + 최근 상담 요약 + 예시 질문. 인사와 요약은 대화 위에 남는다.
+    async function showEmpty() {
       chat.textContent = "";
+      await refreshHistory();
+      if (hist.greeting) {
+        const row = el("div", "row row--bot");
+        row.appendChild(el("div", "bubble", hist.greeting));
+        chat.appendChild(row);
+      }
+      if (hist.consultations.length) {
+        const card = el("section", "recap");
+        const head = el("div", "recap-head");
+        head.appendChild(el("h3", "", "지난 상담 요약"));
+        const more = el("button", "btn btn--sm", "과거 이력 불러오기");
+        more.type = "button";
+        more.addEventListener("click", openSheet);
+        head.appendChild(more);
+        card.appendChild(head);
+        const ul = el("ul", "recap-list");
+        hist.consultations.slice(0, 3).forEach((c) => ul.appendChild(histItem(c, "li")));
+        card.appendChild(ul);
+        chat.appendChild(card);
+      }
       const box = el("div", "empty");
       box.appendChild(el("h2", "", "어디가 불편하신가요?"));
       box.appendChild(el("p", "lead", "증상을 말씀하시면 응급실에 가야 할지, 외래라면 어느 과가 좋을지 근거와 함께 안내해 드려요."));
@@ -120,6 +223,70 @@
       box.appendChild(chips);
       chat.appendChild(box);
     }
+
+    // ---- 과거 이력 패널
+    const sheet = document.getElementById("sheet");
+    async function openSheet() {
+      if (!user) return;
+      await refreshHistory();
+      const body = document.getElementById("sheetBody");
+      body.textContent = "";
+      if (!hist.consultations.length) body.appendChild(el("p", "empty-hist", "아직 저장된 상담 이력이 없어요."));
+      hist.consultations.forEach((c) => body.appendChild(histItem(c, "div")));
+      document.getElementById("clearHistory").disabled = !hist.consultations.length;
+      sheet.hidden = false;
+      document.getElementById("closeSheet").focus();
+    }
+    function closeSheet() { sheet.hidden = true; }
+    document.getElementById("openHistory").addEventListener("click", openSheet);
+    document.getElementById("closeSheet").addEventListener("click", closeSheet);
+    document.getElementById("clearHistory").addEventListener("click", async () => {
+      if (!user || !confirm("저장된 상담 이력을 모두 지울까요? 되돌릴 수 없어요.")) return;
+      try { await postJSON("/memory/clear", { name: user }); } catch (_) {}
+      await openSheet();
+    });
+
+    // ---- 이름 입력(로그인 화면): 시작하기 / 이름 없이 둘러보기 / 사용자 전환
+    const loginEl = document.getElementById("login");
+    const nameInput = document.getElementById("nameInput");
+    const loginError = document.getElementById("loginError");
+    function openLogin() {
+      loginError.textContent = ""; nameInput.value = ""; sheet.hidden = true; loginEl.hidden = false; nameInput.focus();
+    }
+    async function enter(name) {
+      user = name;
+      try { if (name) { localStorage.setItem("user", name); localStorage.removeItem("guest"); } else { localStorage.removeItem("user"); localStorage.setItem("guest", "1"); } } catch (_) {}
+      loginEl.hidden = true; renderWho(); newSession(); await showEmpty(); input.focus();
+    }
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim().replace(/\s+/g, " ");
+      if (!name || name.length > 20) { loginError.textContent = "이름은 1~20자로 입력해 주세요."; return; }
+      try { await postJSON("/memory/history", { name }); } catch (err) { loginError.textContent = err.message; return; }
+      enter(name);
+    });
+    document.getElementById("guest").addEventListener("click", () => enter(null));
+    document.getElementById("switchUser").addEventListener("click", () => { if (!busy) openLogin(); });
+
+    // ---- 밝게/어둡게: 저장된 선택이 없으면 시스템 설정을 따르고, 버튼으로 바꾸면 기억한다
+    function effectiveTheme() {
+      return document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    }
+    // 아이콘: 지금이 밝은 화면이면 달(어둡게), 어두운 화면이면 해(밝게)
+    const MOON = "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z";
+    const SUN = "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4";
+    function renderThemeIcon() {
+      const dark = effectiveTheme() === "dark";
+      document.querySelector("#themeBtn path").setAttribute("d", dark ? SUN : MOON);
+      document.getElementById("themeBtn").title = dark ? "밝은 화면으로" : "어두운 화면으로";
+    }
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      const next = effectiveTheme() === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      try { localStorage.setItem("theme", next); } catch (_) {}
+      renderThemeIcon();
+    });
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderThemeIcon);
 
     function addUser(text) {
       const row = el("div", "row row--user");
@@ -334,7 +501,8 @@
     async function send(text) {
       text = (text || "").trim();
       if (!text || busy) return;
-      if (chat.querySelector(".empty")) chat.textContent = "";
+      const intro = chat.querySelector(".empty");
+      if (intro) intro.remove();
       busy = true; sendBtn.disabled = true; sendBtn.setAttribute("aria-busy", "true");
       addUser(text);
       input.value = ""; autosize();
@@ -343,12 +511,13 @@
         const res = await fetch("/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: text, session_id: sessionId }),
+          body: JSON.stringify({ question: text, session_id: sessionId, user_name: user }),
         });
         if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
         const data = await res.json();
         typing.remove();
         addBot(data, false);
+        if (user && data.trace && data.trace.some((t) => t.step === "save_memory")) refreshHistory();   // 상담이 저장됐으면 이력 갱신
       } catch (err) {
         typing.remove();
         addBot({ answer: "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.\n(" + err.message + ")", contexts: [], trace: [] }, true);
@@ -375,8 +544,13 @@
       if (busy) return;
       newSession(); showEmpty(); input.focus();
     });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) closeSheet(); });
 
-    showEmpty();
+    // 시작: 저장된 이름(또는 '이름 없이')이 있으면 바로 들어가고, 없으면 이름 입력부터
+    renderWho(); syncTop(); renderThemeIcon();
+    let skipLogin = false;
+    try { skipLogin = !!user || localStorage.getItem("guest") === "1"; } catch (_) {}
+    if (skipLogin) showEmpty(); else openLogin();
   </script>
 </body>
 </html>

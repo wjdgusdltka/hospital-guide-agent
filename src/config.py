@@ -51,6 +51,7 @@ EMBED_DIM = int(os.getenv("EMBED_DIM", "512"))
 CHROMA_DIR = Path(os.getenv("CHROMA_DIR", ROOT_DIR / "data" / "chroma"))  # git-ignored: build it with `python -m src.rag.build_index`
 COLLECTION_NAME = "hospital_guide"
 SOURCES_DIR = ROOT_DIR / "data" / "sources"  # committed source data
+MEMORY_DB = Path(os.getenv("MEMORY_DB", ROOT_DIR / "data" / "memory" / "memory.sqlite"))  # 장기 메모리(상담 이력). git-ignored, 개인 건강 정보
 MEDLINEPLUS_DATE = os.getenv("MEDLINEPLUS_DATE", "2026-11-10")  # pinned so evaluations are reproducible
 ANNEX1_PATH = SOURCES_DIR / "emergency_symptoms_annex1.md"
 # 응급 판단 기준(별표 1)의 법령 기준. 파일의 '기준 정보'와 같아야 하며, 인덱스 청크 메타데이터와 평가 케이스에 기록된다.

@@ -14,6 +14,10 @@
                    └ 충분/한도 도달 -> recommend (관련 상태 + 진료과)
   모든 답변은 finalize(출력 가드레일)를 거쳐 끝난다.
 
+장기 메모리(로그인한 사용자만): begin 이 새 대화 첫 턴에 최근 상담을 불러와(load_memory) 안부 인사의 답으로 읽고,
+  지난 상담 안부에 '나아졌어요'라고만 답하면 checkin 으로 짧게 맺는다.
+  emergency / advise_er / recommend 로 상담이 끝나면 save_memory 가 요약을 저장한 뒤 finalize 로 간다.
+
 HITL(interrupt)은 꼭 필요한 한 곳에만 쓴다: 응급의료기관을 찾으려는데 지역이 없을 때(ask_region).
 되묻기 질문이나 응급 안내 뒤의 대화는 interrupt 없이 '다음 요청이 새 턴'으로 처리한다. 응급 점검을 매 답마다
 처음부터 다시 해야 하는 흐름이라, 멈췄다 이어가는 것보다 새 턴으로 처리하는 편이 안전하고 단순하기 때문이다.
@@ -30,7 +34,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from . import answers, retriever, tools
+from . import answers, memory, retriever, tools
 from .guardrails import check_scope, mask_pii, output_guard
 
 MAX_FOLLOWUP_TURNS = 3  # 되묻기 최대 횟수 (SERVICE.md 정책)
@@ -44,7 +48,10 @@ class State(TypedDict, total=False):
     emergency_active: bool  # 이 대화에서 응급 안내가 나갔는가 (이후 턴은 응급 점검을 반복하지 않고 대화를 이어간다)
     awaiting_location: bool  # 응급 안내 후 지역 답변을 기다리는 중인가
     region: dict | None  # 조회할 지역 {sido, sigungu}. 없으면 None
-    last_kind: str  # 직전 응답 유형: followup / emergency / refuse / answer
+    last_kind: str  # 직전 응답 유형: greeting / followup / emergency / refuse / answer
+    user_id: str | None  # 로그인한 사용자(이름 정규화값). 없으면 장기 메모리를 쓰지 않는다
+    session_id: str  # 이번 대화 id (상담 요약의 저장 키)
+    consult: dict | None  # 이번 턴에 끝난 상담 요약(저장 대기)
     scope: dict  # 입력 분류 결과
     red: dict  # 응급 점검 결과
     docs: list[dict]  # 검색된 근거 문서
@@ -81,10 +88,29 @@ def begin(state: State) -> dict:
     """입력 가드레일 1단계: 개인정보를 마스킹하고 이번 턴 상태를 초기화한다."""
     masked, found = mask_pii(state["question"])
     out = f"마스킹: {', '.join(found)}" if found else "개인정보 없음"
+    history = [f"사용자: {masked}"]
+    trace = [{"step": "input_guardrail", "input": _clip(masked), "output": out}]
+    extra = {}
+    uid = state.get("user_id")
+    if uid and not state.get("history"):  # 로그인 사용자의 새 대화 첫 턴: 장기 메모리에서 최근 상담을 불러온다
+        rec = _recall(uid)
+        if rec:
+            history = [memory.context_line(rec)] + history  # '서비스 질문:' 줄이라 안전망 규칙에 걸리지 않고, 프롬프트는 과거 기록으로만 본다
+            extra["last_kind"] = "greeting"  # UI가 건넨 안부 인사에 대한 답으로 읽는다
+            trace.append({"step": "load_memory", "input": "최근 상담 이력 조회(장기 메모리)",
+                          "output": _clip(f"{memory.LEVEL_LABEL[rec['level']]}: {memory.symptom_text(rec)}")})
     return {
-        "question": masked, "history": [f"사용자: {masked}"], "answer": "", "contexts": [], "docs": [],
-        "notes": [], "red": {}, "trace": [{"step": "input_guardrail", "input": _clip(masked), "output": out}],
+        "question": masked, "history": history, "answer": "", "contexts": [], "docs": [],
+        "notes": [], "red": {}, "consult": None, "trace": trace, **extra,
     }
+
+
+def _recall(uid: str) -> dict | None:
+    """최근 상담을 읽되, 저장소 오류가 상담 자체를 막지 않게 한다."""
+    try:
+        return memory.latest(uid)
+    except Exception:
+        return None
 
 
 def classify(state: State) -> dict:
@@ -106,10 +132,18 @@ def route_after_classify(state: State) -> str:
     cat = state["scope"]["category"]
     if cat in ("out_of_scope", "unavailable"):
         return "refuse"
+    if cat == "checkin_ok" and state.get("last_kind") == "greeting":  # 안부 인사에 '나아졌어요'라고만 답함
+        return "checkin"
     # 응급실 목록 요청, 지역 답변을 기다리는 중의 답, 응급 안내 뒤의 대화는 모두 locate 에서 먼저 처리한다
     if cat == "er_lookup" or (cat == "symptom" and (state.get("emergency_active") or state.get("awaiting_location"))):
         return "locate"
     return "triage"
+
+
+def checkin(state: State) -> dict:
+    """안부 인사에 '나아졌어요/진료 받았어요'라고만 답했을 때: 새 증상이 없으니 점검 없이 짧게 맺고 언제든 다시 말하라고 안내한다."""
+    return {"answer": answers.CHECKIN_REPLY, "last_kind": "answer",
+            "trace": _step(state, "checkin_reply", state["question"], "새 증상 없음 -> 안내만")}
 
 
 def refuse(state: State) -> dict:
@@ -245,7 +279,8 @@ def emergency(state: State) -> dict:
         trace = trace + [{"step": "retrieve_guidelines", "input": "별표 1(응급증상) 검색", "output": _clip(", ".join(d["doc_id"] for d in annex) or "문서 없음")}]
     trace = trace + [{"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"}]
     return {"answer": text, "contexts": _contexts(annex), "emergency_active": True, "awaiting_location": True,
-            "followup_turns": 0, "last_kind": "emergency", "trace": trace}
+            "followup_turns": 0, "last_kind": "emergency", "trace": trace,
+            "consult": memory.build_record("urgent", memo, [], text_in)}
 
 
 def _safe_dept(history_text: str, docs: list[dict]):
@@ -280,7 +315,8 @@ def advise_er(state: State) -> dict:
         {"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"},
     ]
     return {"answer": text, "contexts": _contexts(annex) + _contexts(docs), "emergency_active": True, "awaiting_location": True,
-            "followup_turns": 0, "last_kind": "emergency", "trace": trace}
+            "followup_turns": 0, "last_kind": "emergency", "trace": trace,
+            "consult": memory.build_record("advise", memo, depts, text_in)}
 
 
 def refuse_injection(state: State) -> dict:
@@ -329,7 +365,24 @@ def recommend(state: State) -> dict:
         {"step": "recommend_department", "input": "증상과 관련 상태", "output": _clip(f"{dept.departments}: {dept.reason}")},
         {"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"},
     ]
-    return {"answer": answer, "trace": trace, "followup_turns": 0, "last_kind": "answer"}
+    return {"answer": answer, "trace": trace, "followup_turns": 0, "last_kind": "answer",
+            "consult": memory.build_record("recommend", memo, dept.departments, text)}
+
+
+def save_memory(state: State) -> dict:
+    """장기 메모리(패턴 10): 끝난 상담의 요약(증상·기간·안내 결과)을 사용자별로 저장한다. 로그인하지 않았으면 건너뛴다.
+
+    저장 실패가 답변을 막지 않는다. 같은 대화는 한 건으로 덮어쓰므로 대화가 이어지면 최신 결론이 남는다.
+    """
+    uid, rec = state.get("user_id"), state.get("consult")
+    if not uid or not rec:
+        return {}
+    try:
+        memory.save_consultation(uid, state.get("session_id") or "default", rec)
+        out = f"{memory.LEVEL_LABEL[rec['level']]}: {memory.symptom_text(rec)}"
+    except Exception as e:
+        out = f"저장 실패({type(e).__name__}): 답변은 그대로 진행"
+    return {"trace": _step(state, "save_memory", "상담 요약 저장(장기 메모리)", out)}
 
 
 def finalize(state: State) -> dict:
@@ -343,20 +396,23 @@ def finalize(state: State) -> dict:
 def build_graph():
     """노드와 분기를 연결해 컴파일한다. 체크포인터가 session_id 별 대화 상태를 보관한다."""
     g = StateGraph(State)
-    for fn in (begin, classify, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency, advise_er,
-               refuse_injection, assess, recommend, finalize):
+    for fn in (begin, classify, checkin, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency, advise_er,
+               refuse_injection, assess, recommend, save_memory, finalize):
         g.add_node(fn.__name__, fn)
     g.add_edge(START, "begin")
     g.add_edge("begin", "classify")
-    g.add_conditional_edges("classify", route_after_classify, ["refuse", "locate", "triage"])
+    g.add_conditional_edges("classify", route_after_classify, ["refuse", "checkin", "locate", "triage"])
     g.add_conditional_edges("locate", route_after_locate, ["lookup", "ask_region", "emergency_followup", "triage"])
     g.add_conditional_edges("ask_region", route_after_ask_region, ["lookup", "begin"])  # HITL 재개 후: 지역이면 조회, 아니면 새 입력
     g.add_edge("lookup", "finalize")
     g.add_edge("emergency_followup", "finalize")
     g.add_conditional_edges("triage", route_after_triage, ["emergency", "advise_er", "refuse_injection", "assess"])
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])
-    for node in ("refuse", "emergency", "advise_er", "refuse_injection", "recommend"):
+    for node in ("checkin", "refuse", "refuse_injection"):
         g.add_edge(node, "finalize")
+    for node in ("emergency", "advise_er", "recommend"):  # 상담이 끝난 답변은 요약을 저장한 뒤 마무리
+        g.add_edge(node, "save_memory")
+    g.add_edge("save_memory", "finalize")
     g.add_edge("finalize", END)
     return g.compile(checkpointer=InMemorySaver())
 
@@ -365,8 +421,11 @@ _GRAPH = None
 _GRAPH_LOCK = threading.Lock()  # 그래프(와 그 체크포인터)는 프로세스에 하나만 있어야 세션이 유지된다
 
 
-def run_agent(question: str, session_id: str | None = None) -> dict:
-    """질문 하나를 처리해 {answer, contexts, trace} 를 돌려준다. session_id 가 같으면 같은 대화로 이어진다."""
+def run_agent(question: str, session_id: str | None = None, user_id: str | None = None) -> dict:
+    """질문 하나를 처리해 {answer, contexts, trace} 를 돌려준다. session_id 가 같으면 같은 대화로 이어진다.
+
+    user_id 가 있으면(로그인한 사용자) 새 대화 첫 턴에 지난 상담을 불러오고, 상담이 끝나면 요약을 저장한다(장기 메모리).
+    """
     global _GRAPH
     if _GRAPH is None:
         with _GRAPH_LOCK:
@@ -377,7 +436,8 @@ def run_agent(question: str, session_id: str | None = None) -> dict:
     # 직전 요청이 ask_region 의 interrupt() 로 멈춘 세션이면 그 지점에서 재개하고, 아니면 새 입력으로 시작한다.
     # (이전 실행이 오류로 중단된 세션은 interrupt 가 아니므로 새 입력으로 다시 시작한다.)
     waiting = any(t.interrupts for t in _GRAPH.get_state(config).tasks)
-    out = _GRAPH.invoke(Command(resume=question) if waiting else {"question": question}, config=config)
+    payload = {"question": question, "user_id": user_id, "session_id": thread}
+    out = _GRAPH.invoke(Command(resume=question) if waiting else payload, config=config)
     paused = out.get("__interrupt__")
     if paused:  # 지역을 기다리며 멈춤: interrupt 에 담긴 질문 문구를 응답으로 돌려주고, trace 에 멈춘 사실을 남긴다
         trace = out.get("trace", []) + [{"step": "human_in_the_loop", "input": "응급의료기관 조회에 필요한 지역이 없음",

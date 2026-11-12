@@ -6,9 +6,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from . import config  # noqa: F401  (loads .env)
+from . import memory
 from .rag.index_check import NOT_READY_MESSAGE, ensure_index, index_status
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -42,6 +44,7 @@ app = FastAPI(title="병원 길잡이 Agent", lifespan=lifespan)
 class QueryRequest(BaseModel):
     question: str
     session_id: str | None = None  # maps to the LangGraph thread_id; omitted = new conversation
+    user_name: str | None = None  # 선택: 로그인한 사용자 이름. 있으면 장기 메모리(상담 이력)를 쓴다. 없으면 기존과 동일
 
 
 class Context(BaseModel):
@@ -82,7 +85,7 @@ def query(req: QueryRequest) -> QueryResponse:
     from .agent import run_agent
 
     try:
-        result = run_agent(req.question, req.session_id)
+        result = run_agent(req.question, req.session_id, memory.normalize_name(req.user_name))
     except (ClientError, BotoCoreError) as e:  # 모든 모델이 한도·장애로 답하지 못할 때: 오류 대신 안전 안내로 응답
         return QueryResponse(
             answer=MODEL_UNAVAILABLE_ANSWER, contexts=[],
@@ -93,6 +96,39 @@ def query(req: QueryRequest) -> QueryResponse:
         contexts=[Context(**c) for c in result["contexts"]],
         trace=[TraceStep(**t) for t in result["trace"]],
     )
+
+
+class NameRequest(BaseModel):
+    name: str  # 이름은 URL 에 싣지 않으려고 POST 본문으로 받는다
+
+
+class HistoryResponse(BaseModel):
+    name: str
+    greeting: str | None  # 최근 상담이 있으면 안부 인사, 없으면 None
+    consultations: list[dict]  # 최신순 상담 요약
+
+
+def _user(req: NameRequest) -> tuple[str, str]:
+    uid = memory.normalize_name(req.name)
+    if not uid:
+        raise HTTPException(status_code=400, detail=f"이름은 1~{memory.MAX_NAME_CHARS}자로 입력해 주세요.")
+    return uid, " ".join(req.name.split())
+
+
+@app.post("/memory/history", response_model=HistoryResponse)
+def history(req: NameRequest) -> HistoryResponse:
+    """로그인 직후 호출: 이 사용자의 과거 상담 요약 목록과 안부 인사를 돌려준다 (LLM 호출 없음)."""
+    uid, display = _user(req)
+    rows = memory.list_consultations(uid)
+    return HistoryResponse(name=display, greeting=memory.greeting(display, rows[0]) if rows else None,
+                           consultations=[memory.summarize(r) for r in rows])
+
+
+@app.post("/memory/clear")
+def clear_history(req: NameRequest) -> dict:
+    """이 사용자의 저장된 상담 이력을 모두 지운다."""
+    uid, _ = _user(req)
+    return {"deleted": memory.clear(uid)}
 
 
 MODEL_UNAVAILABLE_ANSWER = (

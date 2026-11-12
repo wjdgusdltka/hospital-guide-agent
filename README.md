@@ -28,6 +28,7 @@
 - Day 5: **가드레일·미들웨어** — 입력(개인정보 마스킹, 프롬프트 인젝션·범위 이탈 분류)과 출력(확률·안심·병명 단정·약 용량 표현 제거) 필터링 ✅
 - Day 5: **HITL (Human-in-the-loop)** — 응급의료기관 조회에 **꼭 필요한 값(지역)이 없을 때만** LangGraph `interrupt()` 로 그래프를 멈추고, 같은 `session_id` 의 다음 요청이 `Command(resume=답변)` 으로 그 지점에서 이어 받음. 되묻기나 응급 안내 뒤의 대화는 멈추지 않고 새 턴으로 처리함(매 답마다 응급 점검부터 다시 해야 해서). trace 에 `human_in_the_loop` 단계가 남음 ✅
 - Day 5: **멀티턴 상태** — 대화 상태를 LangGraph 체크포인트(`session_id` → `thread_id`)로 유지 ✅
+- Day 6: **장기 메모리** — 이름만 받아(인증 아님) 사용자별 **상담 요약**(증상·기간·안내 결과·진료과)을 LangGraph Store(`SqliteStore`, `data/memory/memory.sqlite`, git 제외)에 저장하고, 다음 방문 때 첫 화면에서 최근 상담을 바탕으로 안부를 묻고("증상은 좀 나아지셨나요?", "응급실에서 진료는 받으셨나요?") 지난 상담 요약과 "과거 이력 불러오기" 화면을 보여줌. 새 대화 첫 턴에 `load_memory`, 상담이 끝나면 `save_memory` 가 trace 에 남음. 안부에 "나아졌어요"라고만 답하면 점검 없이 짧게 맺고(`checkin_reply`), "아직 아파요"는 지난 기록을 참고만 하고 현재 증상으로 다시 점검. 요약은 진료 메모에서 가져와 **추가 LLM 호출이 없고**, 이름은 LLM 에 보내지 않으며 대화 원문은 저장하지 않음. 이력은 화면에서 지울 수 있음 ✅
 - Day 7: **Observability · Trace** — 응답의 `trace`(단계 이름 = 도구 이름) ✅ / LangSmith 에 실행 트레이스가 정상 기록되는 것을 확인함(2026-11-12) ✅
 - Day 7: **평가** — 자체 인-아웃 세트 + RAGAS + LLM-as-Judge 🚧
 - (인프라) Bedrock 호출 재시도 → 모델 폴백 → **쿨다운(차단기)** ✅ — [src/llm.py](src/llm.py). 한도(스로틀링)에 걸린 모델은 일정 시간 건너뛰어, 매 호출마다 재시도로 시간을 버리지 않음. 건너뛰는 모델은 `/health` 의 `model_cooldowns` 에서 확인. 설정된 모든 모델이 하루 한도에 도달하면 `/health` 의 `quota_alert.all_daily_limited` 가 `true` 가 되고 서버 로그에 CRITICAL 이 남으며, 이때 `/query` 는 오류 대신 "한도 때문에 답변하지 못함, 응급이면 119" 안내를 돌려줌. 알려진 모든 모델(10개)의 한도 상태는 `python -m src.check_quota` 로 점검(전부 한도면 종료 코드 2)
@@ -113,6 +114,7 @@ uvicorn src.server:app --reload
 | `DISABLE_FALLBACK` | `1`이면 폴백 없이 한 모델만 사용(평가 재현용) |
 | `GOV_DATA_API_ENDPOINT`, `GOV_DATA_API_KEY` | 국립중앙의료원 응급의료정보 조회 서비스(공공데이터포털) |
 | `LANGSMITH_*` (선택) | 트레이싱 |
+| `MEMORY_DB` | 장기 메모리(상담 이력) SQLite 파일 경로. 기본 `data/memory/memory.sqlite` (git 제외, 개인 건강 정보라 올리지 말 것) |
 | `MOCK_MODE` | 기본 `0`(실제 에이전트). `1`을 명시해야 UI 개발용 고정 응답이 나가며, 이때 시작 경고와 모든 응답 trace 끝의 `mock_mode` 단계로 가짜 응답임이 표시됨. 운영에서는 `0` 유지 |
 
 ### 검색 인덱스(Chroma) 참고
