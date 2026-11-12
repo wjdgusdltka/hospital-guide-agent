@@ -11,7 +11,9 @@
             └ assess(정보 충분?)
                    ├ 부족(3턴 이내) -> followup (되묻기)
                    └ 충분/한도 도달 -> recommend (관련 상태 + 진료과)
-  모든 답변은 finalize(출력 가드레일)를 거쳐 끝난다.
+  모든 답변은 finalize(출력 가드레일)를 거친다. 사용자의 답이 필요한 응답(되묻기, 지역 질문)이면
+  wait_user 에서 interrupt() 로 멈추고(HITL), 같은 세션의 다음 요청이 Command(resume=답변)으로 이어 받아
+  begin 으로 돌아간다. 답이 필요 없는 응답은 그대로 끝난다.
 
 멀티턴 상태는 체크포인터(InMemorySaver)가 session_id(=thread_id)별로 보관한다. (서버 메모리에만 저장)
 """
@@ -23,6 +25,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 
 from . import answers, retriever, tools
 from .guardrails import check_scope, mask_pii, output_guard
@@ -259,7 +262,31 @@ def finalize(state: State) -> dict:
     """출력 가드레일: 금지 표현(확률·안심·병명 단정·약 용량)이 든 줄을 지우고 trace 에 기록한다."""
     cleaned, removed = output_guard(state["answer"])
     out = f"제거: {', '.join(removed)}" if removed else "통과"
-    return {"answer": cleaned, "trace": _step(state, "output_guardrail", "최종 답변 검사", out)}
+    trace = _step(state, "output_guardrail", "최종 답변 검사", out)
+    if _expects_reply(state):  # 사용자의 답이 필요한 응답이면 그래프가 여기서 멈춘다(HITL) — trace 에 그 사실을 남긴다
+        trace += [{"step": "human_in_the_loop", "input": "사용자 답변이 필요한 응답", "output": "interrupt() 로 대기, 다음 요청이 같은 세션이면 재개"}]
+    return {"answer": cleaned, "trace": trace}
+
+
+def _expects_reply(state: State) -> bool:
+    """이번 응답이 사용자의 답변을 기다리는 질문인가 (되묻기, 지역 질문)."""
+    kind = state.get("last_kind")
+    return kind in ("followup", "locate_ask") or (kind == "emergency" and bool(state.get("awaiting_location")))
+
+
+def route_after_finalize(state: State) -> str:
+    """답변을 보낸 뒤: 사용자의 답이 필요하면 멈추고(HITL), 아니면 끝낸다."""
+    return "wait_user" if _expects_reply(state) else END
+
+
+def wait_user(state: State) -> dict:
+    """Human-in-the-loop: interrupt() 로 그래프를 멈추고 사용자의 답을 기다린다.
+
+    같은 session_id 의 다음 요청은 Command(resume=답변) 으로 이 지점에서 이어진다.
+    돌려받은 답변은 새 입력(question)이 되어 begin 으로 돌아가 정상 흐름(분류, 지역 조회, 증상 점검)을 다시 탄다.
+    """
+    reply = interrupt({"kind": state.get("last_kind"), "prompt": state.get("answer", "")})
+    return {"question": reply}
 
 
 # ------------------------------------------------------------------ 그래프 조립
@@ -267,7 +294,7 @@ def build_graph():
     """노드와 분기를 연결해 컴파일한다. 체크포인터가 session_id 별 대화 상태를 보관한다."""
     g = StateGraph(State)
     for fn in (begin, classify, refuse, locate, emergency_followup, triage, emergency, refuse_injection, assess,
-               recommend, finalize):
+               recommend, finalize, wait_user):
         g.add_node(fn.__name__, fn)
     g.add_edge(START, "begin")
     g.add_edge("begin", "classify")
@@ -278,7 +305,8 @@ def build_graph():
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])
     for node in ("refuse", "emergency", "refuse_injection", "recommend"):
         g.add_edge(node, "finalize")
-    g.add_edge("finalize", END)
+    g.add_conditional_edges("finalize", route_after_finalize, ["wait_user", END])
+    g.add_edge("wait_user", "begin")  # 재개된 사용자 답변은 새 입력으로 처음부터(마스킹, 분류, ...) 처리한다
     return g.compile(checkpointer=InMemorySaver())
 
 
@@ -294,8 +322,9 @@ def run_agent(question: str, session_id: str | None = None) -> dict:
             if _GRAPH is None:
                 _GRAPH = build_graph()
     thread = session_id or uuid.uuid4().hex  # session_id 가 없으면 매번 새 대화
-    out = _GRAPH.invoke(
-        {"question": question},
-        config={"configurable": {"thread_id": thread}, "run_name": "hospital-guide-agent", "tags": ["hospital-guide"]},
-    )
+    config = {"configurable": {"thread_id": thread}, "run_name": "hospital-guide-agent", "tags": ["hospital-guide"]}
+    # 직전 응답이 사용자의 답을 기다리며 interrupt() 로 멈춘 세션이면 그 지점에서 재개하고, 아니면 새 입력으로 시작한다.
+    # (이전 실행이 오류로 중단된 세션은 interrupt 가 아니므로 새 입력으로 다시 시작한다.)
+    waiting = any(t.interrupts for t in _GRAPH.get_state(config).tasks)
+    out = _GRAPH.invoke(Command(resume=question) if waiting else {"question": question}, config=config)
     return {"answer": out["answer"], "contexts": out.get("contexts", []), "trace": out.get("trace", [])}

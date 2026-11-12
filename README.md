@@ -25,7 +25,8 @@
 - Day 1: **LCEL chain (Pydantic 구조화 출력)** — `프롬프트 | 모델.with_structured_output(스키마)` 체인으로 입력 분류, 응급 점검, 되묻기 판단, 관련 상태, 진료과를 구조화해 받음 ✅
 - Day 4: **도구 다중(외부 API 포함)** — 응급 점검, 근거 검색, 되묻기, 관련 상태, 진료과 추천, 진료 메모 생성, 국립중앙의료원 응급의료기관 조회 ✅
 - Day 5: **가드레일·미들웨어** — 입력(개인정보 마스킹, 프롬프트 인젝션·범위 이탈 분류)과 출력(확률·안심·병명 단정·약 용량 표현 제거) 필터링 ✅
-- Day 5: **멀티턴 상태** — 되묻기·지역 답변 상태를 LangGraph 체크포인트(`session_id` → `thread_id`)로 유지 ✅ (HITL `interrupt()` 는 쓰지 않음)
+- Day 5: **HITL (Human-in-the-loop)** — 사용자의 답이 필요한 응답(되묻기, "지역을 알려 주세요")을 보낸 뒤 LangGraph `interrupt()` 로 그래프를 **실제로 멈추고**, 같은 `session_id` 의 다음 요청이 `Command(resume=답변)` 으로 그 지점에서 이어 받음. trace 에 `human_in_the_loop` 단계가 남음 ✅
+- Day 5: **멀티턴 상태** — 대화 상태를 LangGraph 체크포인트(`session_id` → `thread_id`)로 유지 ✅
 - Day 7: **Observability · Trace** — 응답의 `trace`(단계 이름 = 도구 이름) ✅ / LangSmith 에 실행 트레이스가 정상 기록되는 것을 확인함(2026-11-12) ✅
 - Day 7: **평가** — 자체 인-아웃 세트 + RAGAS + LLM-as-Judge 🚧
 - (인프라) Bedrock 호출 재시도 후 모델 폴백 ✅ — [src/llm.py](src/llm.py)
@@ -47,6 +48,7 @@ FastAPI (src/server.py)
   3. assess              ask_followup: 정보 부족이면 위험 신호부터 되묻기 (최대 3턴, 답마다 응급 재점검)
   4. recommend           find_related_conditions + recommend_department + make_visit_memo (병렬, 응급이 아닐 때만)
   5. finalize            출력 가드레일: 금지 표현 제거, 고지 문구 확인
+  6. wait_user (HITL)    사용자의 답이 필요한 응답이면 interrupt() 로 멈춤 → 다음 요청이 Command(resume) 으로 재개 → 1번으로
   (응급 안내 다음 턴) locate: 사용자가 알려준 지역으로 find_emergency_rooms 조회
    ▼
 { answer, contexts[{doc_id,text}], trace[{step,input,output}] }
