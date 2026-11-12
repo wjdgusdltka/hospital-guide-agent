@@ -31,3 +31,6 @@ data/chroma/
 
 # Hallmark design-skill working files
 .hallmark/
+
+# Claude Code worktrees and local state
+.claude/

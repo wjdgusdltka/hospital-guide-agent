@@ -30,11 +30,29 @@ class QueryPlan(BaseModel):
     english_queries: list[str] = Field(description="영어 검색 키워드 1~3개 (증상 중심의 짧은 구)")
 
 
+class OpenQuestion(str):
+    """예/아니오로 물을 수 없는 열린 질문(문자열과 같고, 종류만 구분하는 표지)."""
+
+
+class FollowupQuestion(BaseModel):
+    """되묻기 질문 하나."""
+
+    text: str = Field(description="한 문장 질문. 가능하면 '~나요?' 같은 예/아니오로 답할 수 있는 형태로 쓴다")
+    kind: Literal["closed", "open"] = Field(
+        description="closed=예/아니오/모르겠어요로 답할 수 있음(기본) / open=예/아니오 형태가 정말 불가능할 때만(예: 얼마나 오래됐는지)"
+    )
+
+
 class Assessment(BaseModel):
     """ask_followup 결과: 정보가 충분한지, 부족하면 무엇을 물을지."""
 
     enough_info: bool = Field(description="응급 여부·진료과를 안내하기에 정보가 충분한가")
-    questions: list[str] = Field(description="추가로 물을 질문 0~2개(위험 신호 질문 우선). 충분하면 빈 목록")
+    items: list[FollowupQuestion] = Field(description="추가로 물을 질문 0~2개(위험 신호 질문 우선). 충분하면 빈 목록")
+
+    @property
+    def questions(self) -> list[str]:
+        """질문 문장 목록. 열린 질문은 OpenQuestion(str 하위 클래스)이라 compose_followup 이 접미사 없이 쓴다."""
+        return [OpenQuestion(i.text) if i.kind == "open" else i.text for i in self.items]
 
 
 class Condition(BaseModel):

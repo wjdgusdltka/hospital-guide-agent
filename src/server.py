@@ -1,4 +1,5 @@
 """FastAPI server: POST /query (course API spec) + static chat UI from web/."""
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,7 +12,13 @@ from . import config  # noqa: F401  (loads .env)
 from .rag.index_check import NOT_READY_MESSAGE, ensure_index, index_status
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-MOCK_MODE = os.getenv("MOCK_MODE", "1") == "1"
+# Mock is OFF unless explicitly enabled with MOCK_MODE=1 (never ship fixed fake answers by accident).
+MOCK_MODE = os.getenv("MOCK_MODE", "0").strip() == "1"
+logger = logging.getLogger("uvicorn.error")
+MOCK_WARNING = (
+    "!!! WARNING: MOCK_MODE=1 -- 모든 답변이 고정 가짜 응답입니다 (실제 에이전트가 아님). "
+    "개발용으로만 쓰고 운영에서는 MOCK_MODE=0 으로 두세요. !!!"
+)
 
 
 @asynccontextmanager
@@ -19,6 +26,8 @@ async def lifespan(_: FastAPI):
     # Real mode: refuse to start without the search index (answers without evidence are not allowed).
     # Mock mode (UI development): only warn.
     if MOCK_MODE:
+        print(MOCK_WARNING, flush=True)
+        logger.warning(MOCK_WARNING)
         st = index_status()
         if not st["ready"]:
             print(NOT_READY_MESSAGE.format(reason=st["reason"]))
@@ -108,9 +117,9 @@ def _mock_response(req: QueryRequest) -> QueryResponse:
         ]
     elif any(k in q for k in ("배", "두통", "머리", "열", "설사", "토")):
         answer = (
-            "정확히 안내드리기 위해 몇 가지 여쭤볼게요.\n\n"
-            "1. 증상이 갑자기 시작됐나요, 서서히 시작됐나요?\n"
-            "2. 열이 있거나 구토, 목 뻣뻣함이 함께 있나요?\n\n"
+            "정확히 안내드리기 위해 몇 가지 여쭤볼게요. 아래 질문에 버튼을 누르거나 직접 입력해 답해 주세요.\n\n"
+            "1. 증상이 갑자기 시작됐나요? (예/아니오/모르겠어요)\n"
+            "2. 열이 있거나 구토, 목 뻣뻣함이 함께 있나요? (예/아니오/모르겠어요)\n\n"
             "모르시면 '모르겠어요'라고 답하셔도 됩니다."
         )
         contexts = [Context(doc_id="mplus-273-0", text="(mock) Headache: ... Get medical help right away if you have a headache after a head injury ...")]
@@ -127,6 +136,7 @@ def _mock_response(req: QueryRequest) -> QueryResponse:
         )
         contexts = [Context(doc_id="mock-doc-1", text="(mock) 근거 문서 발췌 예시")]
         trace = [TraceStep(step="mock", input=q, output="canned response")]
+    trace.append(TraceStep(step="mock_mode", input="(mock)", output="고정 응답입니다 (실제 에이전트가 아님)"))
     return QueryResponse(answer=answer, contexts=contexts, trace=trace)
 
 

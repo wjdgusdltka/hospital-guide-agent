@@ -22,7 +22,13 @@
           <p>응급실? 외래? 증상을 말씀해 보세요</p>
         </div>
       </div>
-      <button class="btn" id="reset" type="button">새 대화</button>
+      <div class="topbar-actions">
+        <a class="btn btn--call btn--sos" id="call119" href="tel:119" aria-label="119에 전화하기">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2.1z"/></svg>
+          <span>119 전화</span>
+        </a>
+        <button class="btn" id="reset" type="button">새 대화</button>
+      </div>
     </header>
 
     <p class="notice">개인 학습용 프로젝트입니다. 안내는 <b>단순 참고용</b>이며 의사의 진단을 대신하지 않습니다. 응급이 의심되면 즉시 <b>119</b>에 연락하세요.</p>
@@ -245,6 +251,89 @@
       });
     }
 
+    // ---- 예/아니오 되묻기: '1. 질문 (예/아니오/모르겠어요)' 줄을 질문 + 선택 버튼으로 바꾼다 (직접 입력도 항상 가능)
+    const CLOSED_Q = /^(\d+)\. (.+) \(예\/아니오\/모르겠어요\)$/;
+    const OPEN_Q = /^(\d+)\. (.+)$/;
+    const CHOICES = ["예", "아니오", "모르겠어요"];
+
+    function buildFollowup(container, text) {
+      container.textContent = "";
+      const qs = [];   // { q, open, answer }
+      const sendRow = el("div", "fq-send");
+      const sendBtn2 = el("button", "btn btn--primary fq-submit");
+      sendBtn2.type = "button";
+      sendBtn2.hidden = true;
+      let locked = false;
+
+      function message() {
+        return qs.map((x) => "질문: " + x.q + " / 답: " + (x.open ? (x.answer || "") : x.answer)).join("\n");
+      }
+      function refresh() {
+        const closed = qs.filter((x) => !x.open);
+        const hasOpen = qs.some((x) => x.open);
+        const ready = !locked && closed.length > 0 && closed.every((x) => x.answer);
+        sendBtn2.hidden = !ready;
+        sendBtn2.textContent = hasOpen ? "답변을 입력창에 넣기" : "답변 보내기";
+      }
+      function lock() {
+        locked = true;
+        container.querySelectorAll(".fq-choice").forEach((b) => { b.disabled = true; });
+        sendBtn2.hidden = true;
+        container.classList.add("fq--done");
+      }
+      sendBtn2.addEventListener("click", () => {
+        if (locked) return;
+        if (qs.some((x) => x.open)) {            // 열린 질문이 있으면 자동 전송하지 않고 입력창에 채워 준다
+          input.value = message(); autosize(); input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+          return;
+        }
+        if (busy) return;
+        send(message());
+        lock();
+      });
+
+      text.split("\n\n").forEach((p) => {
+        const lines = p.split("\n").filter(Boolean);
+        if (!(lines.length && lines.every((l) => OPEN_Q.test(l)))) {
+          const d = el("div", "part");
+          setRichText(d, p);
+          container.appendChild(d);
+          return;
+        }
+        lines.forEach((l) => {
+          const mc = l.match(CLOSED_Q);
+          const m = mc || l.match(OPEN_Q);
+          const item = { q: m[2], open: !mc, answer: "" };
+          qs.push(item);
+          const box = el("div", "fq");
+          box.appendChild(el("p", "fq-text", m[1] + ". " + m[2]));
+          if (mc) {
+            const group = el("div", "fq-choices");
+            group.setAttribute("role", "group");
+            group.setAttribute("aria-label", m[1] + "번 질문 답");
+            CHOICES.forEach((c) => {
+              const b = el("button", "btn fq-choice", c);
+              b.type = "button";
+              b.setAttribute("aria-pressed", "false");
+              b.addEventListener("click", () => {
+                if (locked) return;
+                item.answer = item.answer === c ? "" : c;
+                group.querySelectorAll(".fq-choice").forEach((o) => o.setAttribute("aria-pressed", String(o.textContent === item.answer)));
+                refresh();
+              });
+              group.appendChild(b);
+            });
+            box.appendChild(group);
+          }
+          container.appendChild(box);
+        });
+      });
+      sendRow.appendChild(sendBtn2);
+      container.appendChild(sendRow);
+      refresh();
+    }
+
     function addBot(data, isError) {
       const row = el("div", "row row--bot");
       const wrap = el("div", "stack");
@@ -278,6 +367,8 @@
         bubble.appendChild(call);
       } else if (answerBody.split("\n").some((l) => ROOM_LINE.test(l))) {
         renderBody(bubble, answerBody);          // 응급의료기관 목록이 있는 답변
+      } else if (!isError && answerBody.split("\n").some((l) => CLOSED_Q.test(l))) {
+        buildFollowup(bubble, answerBody);       // 예/아니오 되묻기: 선택 버튼
       } else {
         setRichText(bubble, answerBody);
         if (isError) bubble.classList.add("bubble--error");

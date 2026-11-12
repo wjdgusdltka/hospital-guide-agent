@@ -2,11 +2,11 @@
  "summary": {
   "run_date": "2026-11-12",
   "law_version": "보건복지부령 제1189호(2026-07-13 개정), 2026-08-14 시행",
-  "cases": 32,
-  "passed": 31,
+  "cases": 35,
+  "passed": 34,
   "known_gaps": 1,
   "failed": [],
-  "item_match": "23/23"
+  "item_match": "24/24"
  },
  "results": [
   {
@@ -101,7 +101,8 @@
     "A-나-3"
    ],
    "matched_item_ids": [
-    "A-나-3"
+    "A-나-3",
+    "A-나-5"
    ],
    "item_match": true,
    "error": null
@@ -120,6 +121,7 @@
    "matched_item_ids": [
     "A-나-4",
     "A-나-5",
+    "A-가-1",
     "B-가-2"
    ],
    "item_match": true,
@@ -187,6 +189,7 @@
     "A-라-2"
    ],
    "matched_item_ids": [
+    "A-라-2",
     "A-라-2"
    ],
    "item_match": true,
@@ -204,7 +207,8 @@
    ],
    "matched_item_ids": [
     "A-라-3",
-    "A-라-6"
+    "A-라-7",
+    "A-마-2"
    ],
    "item_match": true,
    "error": null
@@ -220,8 +224,7 @@
     "A-라-4"
    ],
    "matched_item_ids": [
-    "A-라-4",
-    "A-라-7"
+    "A-라-4"
    ],
    "item_match": true,
    "error": null
@@ -269,9 +272,8 @@
     "A-마-3"
    ],
    "matched_item_ids": [
-    "A-마-1",
-    "A-마-2",
-    "A-마-3"
+    "A-마-3",
+    "A-마-2"
    ],
    "item_match": true,
    "error": null
@@ -398,7 +400,8 @@
    "known_gap": false,
    "expected_item_ids": [],
    "matched_item_ids": [
-    "B-바-1"
+    "B-바-1",
+    "B-다-2"
    ],
    "item_match": null,
    "error": null
@@ -412,8 +415,8 @@
    "known_gap": false,
    "expected_item_ids": [],
    "matched_item_ids": [
-    "A-가-1",
-    "B-가-2"
+    "A-다-3",
+    "A-가-1"
    ],
    "item_match": null,
    "error": null
@@ -480,9 +483,7 @@
    "expected_item_ids": [
     "B-가-2"
    ],
-   "matched_item_ids": [
-    "B-가-2"
-   ],
+   "matched_item_ids": [],
    "item_match": null,
    "error": null
   },
@@ -511,6 +512,48 @@
    "matched_item_ids": [
     "A-나-2"
    ],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "E27",
+   "basis": "law",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [
+    "A-마-1"
+   ],
+   "matched_item_ids": [
+    "A-마-1"
+   ],
+   "item_match": true,
+   "error": null
+  },
+  {
+   "id": "E28",
+   "basis": "policy",
+   "expected": true,
+   "got": true,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [
+    "A-가-1"
+   ],
+   "item_match": null,
+   "error": null
+  },
+  {
+   "id": "N07",
+   "basis": "negative",
+   "expected": false,
+   "got": false,
+   "passed": true,
+   "known_gap": false,
+   "expected_item_ids": [],
+   "matched_item_ids": [],
    "item_match": null,
    "error": null
   }
