@@ -166,9 +166,12 @@
     function syncTop() { document.documentElement.style.setProperty("--top", (userbar.offsetTop + userbar.offsetHeight) + "px"); }
     window.addEventListener("resize", syncTop);
 
-    let user = null;           // 표시 이름. null 이면 비로그인(이력 저장 안 함)
+    let user = null;           // 표시 이름. null 이면 이름 없이 이용 중(이력 저장 안 함)
+    let entered = false;       // 이름 화면에서 이름을 입력하거나 '이름 없이 둘러보기'를 고른 뒤에 true
+    let lastName = "";         // 지난번에 쓴 이름: 이름 화면 입력칸에 미리 채워 줄 뿐, 자동으로 들어가지는 않는다
+    let histDirty = false;     // 이력 화면에서 삭제가 있었는지(닫을 때 첫 화면 요약을 새로 그리려고)
     let hist = { greeting: null, consultations: [] };
-    try { user = localStorage.getItem("user") || null; } catch (_) {}
+    try { lastName = localStorage.getItem("user") || ""; } catch (_) {}
 
     async function postJSON(path, body) {
       const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -182,27 +185,30 @@
     }
 
     function renderWho() {
-      document.getElementById("who").textContent = user ? user + " 님" : "이름 없이 이용 중";
+      document.getElementById("who").textContent = !entered ? "이름을 입력해 주세요" : user ? user + " 님" : "이름 없이 이용 중";
       document.getElementById("openHistory").disabled = !user;
     }
 
     // 상담 한 건: 날짜 · 안내 결과 · 증상 · 진료과 (이력 패널과 첫 화면 요약이 같이 쓴다)
-    function histItem(c, tag) {
+    // canDelete: 삭제 버튼은 상단 '이력 불러오기' 화면에서만 보이고, 첫 화면 요약 카드에서는 보기만 가능하다
+    function histItem(c, tag, canDelete) {
       const box = el(tag === "li" ? "li" : "div", (tag === "li" ? "" : "hist ") + "hist-open");
       box.tabIndex = 0;
       box.setAttribute("role", "button");
       box.setAttribute("aria-label", c.when + " 상담 기록 열기");
-      box.addEventListener("click", () => openDetail(c));
-      box.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(c); } });
+      box.addEventListener("click", () => openDetail(c, canDelete));
+      box.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(c, canDelete); } });
       const top = el("div", "hist-top");
       top.appendChild(el("span", "tag tag--" + c.level, c.level_label));
       top.appendChild(el("span", "hist-when", c.when));
-      const del = el("button", "btn btn--sm hist-del", "삭제");
-      del.type = "button";
-      del.setAttribute("aria-label", c.when + " 상담 기록 삭제");
-      del.addEventListener("click", (e) => { e.stopPropagation(); deleteOne(c); });
-      del.addEventListener("keydown", (e) => e.stopPropagation());
-      top.appendChild(del);
+      if (canDelete) {
+        const del = el("button", "btn btn--sm hist-del", "삭제");
+        del.type = "button";
+        del.setAttribute("aria-label", c.when + " 상담 기록 삭제");
+        del.addEventListener("click", (e) => { e.stopPropagation(); deleteOne(c); });
+        del.addEventListener("keydown", (e) => e.stopPropagation());
+        top.appendChild(del);
+      }
       box.appendChild(top);
       box.appendChild(el("p", "hist-sym", c.symptoms));
       if (c.departments && c.departments.length) box.appendChild(el("p", "hist-dept", "안내한 진료과: " + c.departments.join(", ")));
@@ -238,7 +244,7 @@
     // ---- 상담 한 건 팝업: 저장된 진료 카드(진료 메모)를 다시 보여 준다
     const detail = document.getElementById("detail");
     let detailOpener = null;
-    function openDetail(c) {
+    function openDetail(c, canDelete) {
       detailOpener = document.activeElement;
       const body = document.getElementById("detailBody");
       body.textContent = "";
@@ -258,12 +264,14 @@
       } else {
         body.appendChild(el("p", "hist-dept", "이 상담에는 저장된 진료 카드가 없어요."));
       }
-      const act = el("div", "modal-actions");
-      const dbtn = el("button", "btn btn--sm hist-del", "이 기록 삭제");
-      dbtn.type = "button";
-      dbtn.addEventListener("click", () => deleteOne(c));
-      act.appendChild(dbtn);
-      body.appendChild(act);
+      if (canDelete) {  // 이력 화면에서 연 팝업에서만 삭제할 수 있다
+        const act = el("div", "modal-actions");
+        const dbtn = el("button", "btn btn--sm hist-del", "이 기록 삭제");
+        dbtn.type = "button";
+        dbtn.addEventListener("click", () => deleteOne(c));
+        act.appendChild(dbtn);
+        body.appendChild(act);
+      }
       detail.hidden = false;
       document.getElementById("closeDetail").focus();
     }
@@ -271,18 +279,19 @@
       detail.hidden = true;
       if (detailOpener && detailOpener.isConnected) detailOpener.focus();
     }
-    // 상담 한 건 삭제: 확인 뒤 지우고, 열려 있는 목록(이력 화면 또는 첫 화면 요약)을 다시 그린다
+    // 상담 한 건 삭제(이력 화면에서만): 확인 뒤 지우고 이력 목록을 다시 그린다. 첫 화면 요약은 이력 화면을 닫을 때 갱신한다
     async function deleteOne(c) {
       if (!user || !confirm(c.when + " 상담 기록을 지울까요? 되돌릴 수 없어요.")) return;
       try { await postJSON("/memory/delete", { name: user, id: c.id }); } catch (_) {}
-      const sheetOpen = !sheet.hidden;
+      histDirty = true;
       detail.hidden = true;
-      if (sheetOpen) await openSheet(); else await showEmpty();
+      await openSheet();
     }
     document.getElementById("closeDetail").addEventListener("click", closeDetail);
     detail.addEventListener("click", (e) => { if (e.target === detail) closeDetail(); });
 
     // 새 대화 첫 화면: 안부 인사 + 최근 상담 요약 + 예시 질문. 인사와 요약은 대화 위에 남는다.
+    const RECAP_MAX = 2;
     async function showEmpty() {
       chat.textContent = "";
       await refreshHistory();
@@ -291,18 +300,14 @@
         row.appendChild(el("div", "bubble", hist.greeting));
         chat.appendChild(row);
       }
-      if (hist.consultations.length) {
+      if (hist.consultations.length) {  // 최근 2건만 보여 준다. 더 보거나 지우는 건 상단 '이력 불러오기' 메뉴에서
         const card = el("section", "recap");
         const head = el("div", "recap-head");
         head.appendChild(el("h3", "", "지난 상담 요약"));
-        const more = el("button", "btn btn--sm", "과거 이력 불러오기");
-        more.type = "button";
-        more.addEventListener("click", openSheet);
-        head.appendChild(more);
         card.appendChild(head);
         const ul = el("ul", "recap-list");
+        hist.consultations.slice(0, RECAP_MAX).forEach((c) => ul.appendChild(histItem(c, "li", false)));
         card.appendChild(ul);
-        card.appendChild(pager(ul, hist.consultations, (c) => histItem(c, "li")));
         chat.appendChild(card);
       }
       const box = el("div", "empty");
@@ -330,18 +335,23 @@
       if (hist.consultations.length) {
         const list = el("div", "hist-list");
         body.appendChild(list);
-        body.appendChild(pager(list, hist.consultations, (c) => histItem(c, "div")));
+        body.appendChild(pager(list, hist.consultations, (c) => histItem(c, "div", true)));
       }
       document.getElementById("clearHistory").disabled = !hist.consultations.length;
       sheet.hidden = false;
       document.getElementById("closeSheet").focus();
     }
-    function closeSheet() { sheet.hidden = true; }
+    function closeSheet() {
+      sheet.hidden = true;
+      // 삭제가 있었고 아직 첫 화면(대화 전)이면 요약 카드를 새로 그린다. 대화 중이면 대화를 지우지 않도록 건드리지 않는다
+      if (histDirty) { histDirty = false; if (chat.querySelector(".empty")) showEmpty(); }
+    }
     document.getElementById("openHistory").addEventListener("click", openSheet);
     document.getElementById("closeSheet").addEventListener("click", closeSheet);
     document.getElementById("clearHistory").addEventListener("click", async () => {
       if (!user || !confirm("저장된 상담 이력을 모두 지울까요? 되돌릴 수 없어요.")) return;
       try { await postJSON("/memory/clear", { name: user }); } catch (_) {}
+      histDirty = true;
       await openSheet();
     });
 
@@ -350,11 +360,13 @@
     const nameInput = document.getElementById("nameInput");
     const loginError = document.getElementById("loginError");
     function openLogin() {
-      loginError.textContent = ""; nameInput.value = ""; sheet.hidden = true; loginEl.hidden = false; nameInput.focus();
+      // 지난번에 쓴 이름이 있으면 미리 채워 둔다(고쳐 쓰거나 그대로 '시작하기'). 이름 화면은 앱을 열 때마다 먼저 나온다
+      loginError.textContent = ""; nameInput.value = user || lastName; sheet.hidden = true; detail.hidden = true; loginEl.hidden = false;
+      nameInput.focus(); nameInput.select();
     }
     async function enter(name) {
-      user = name;
-      try { if (name) { localStorage.setItem("user", name); localStorage.removeItem("guest"); } else { localStorage.removeItem("user"); localStorage.setItem("guest", "1"); } } catch (_) {}
+      user = name; entered = true;
+      if (name) { lastName = name; try { localStorage.setItem("user", name); } catch (_) {} }  // 다음 방문 때 입력칸에 미리 채우려고만 기억한다
       loginEl.hidden = true; renderWho(); newSession(); await showEmpty(); input.focus();
     }
     document.getElementById("loginForm").addEventListener("submit", async (e) => {
@@ -645,11 +657,9 @@
     });
     document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (!detail.hidden) closeDetail(); else if (!sheet.hidden) closeSheet(); });
 
-    // 시작: 저장된 이름(또는 '이름 없이')이 있으면 바로 들어가고, 없으면 이름 입력부터
+    // 시작: 앱을 열 때마다 이름 입력 화면부터 보여 준다(저장된 이름이 있어도 건너뛰지 않는다)
     renderWho(); syncTop(); renderThemeIcon();
-    let skipLogin = false;
-    try { skipLogin = !!user || localStorage.getItem("guest") === "1"; } catch (_) {}
-    if (skipLogin) showEmpty(); else openLogin();
+    openLogin();
   </script>
 </body>
 </html>

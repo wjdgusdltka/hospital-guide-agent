@@ -35,6 +35,21 @@ def _on_cooldown(model_id: str) -> bool:
         return _COOLDOWN.get(model_id, (0, False))[0] > time.time()
 
 
+def _needs_probe(model_id: str) -> bool:
+    """이 모델이 하루 한도로 쿨다운에 들어갔다가 막 풀린 상태인가? 그렇다면 재시도 없이 한 번만 찔러 본다(아래 CooldownFallback)."""
+    with _LOCK:
+        entry = _COOLDOWN.get(model_id)
+        return bool(entry and entry[1])
+
+
+def _clear_daily(model_id: str) -> None:
+    """한도가 풀려 호출에 성공했으면 '하루 한도였던 모델' 표시를 지워 다시 평소 재시도로 돌아간다."""
+    with _LOCK:
+        entry = _COOLDOWN.get(model_id)
+        if entry and entry[1]:
+            del _COOLDOWN[model_id]
+
+
 def _is_throttle(exc: Exception) -> bool:
     """True for throttling / quota errors (the ones worth a cooldown)."""
     code = exc.response.get("Error", {}).get("Code", "") if isinstance(exc, ClientError) else ""
@@ -93,15 +108,15 @@ def _note_model(model_id: str) -> None:
 
 
 # ------------------------------------------------------------------ models
-def build_model(model_id: str) -> ChatBedrockConverse:
-    """One Bedrock model with adaptive retry/backoff for throttling."""
+def build_model(model_id: str, attempts: int | None = None) -> ChatBedrockConverse:
+    """One Bedrock model with adaptive retry/backoff for throttling. attempts=1 이면 재시도 없이 한 번만 호출한다."""
     return ChatBedrockConverse(
         model_id=model_id,
         region_name=config.AWS_REGION,
         temperature=config.TEMPERATURE,
         max_tokens=config.MAX_TOKENS,
         config=Config(
-            retries={"mode": "adaptive", "max_attempts": config.MAX_RETRY_ATTEMPTS},
+            retries={"mode": "adaptive", "max_attempts": attempts or config.MAX_RETRY_ATTEMPTS},
             read_timeout=config.READ_TIMEOUT_S,
         ),
     )
@@ -111,20 +126,29 @@ class CooldownFallback(Runnable):
     """Try the models in order, skipping the ones on cooldown; a throttled model is put on cooldown.
 
     If every model is on cooldown it still tries them all as a last resort (the limit may have been lifted).
+
+    하루 한도로 쉬던 모델이 쿨다운에서 풀린 뒤 처음 불릴 때는 `probes`(재시도 1번짜리 같은 모델)로 한 번만 찔러 본다.
+    한도가 그대로면 재시도 대기 없이 바로 다음 모델로 넘어가고, 풀렸으면 성공하면서 평소 재시도 설정으로 돌아간다.
+    (5분마다 풀린 첫 요청이 한도에 걸린 모델의 재시도를 기다리느라 느려지던 문제를 막는다.)
     """
 
-    def __init__(self, ids: list[str], runnables: list[Runnable]):
+    def __init__(self, ids: list[str], runnables: list[Runnable], probes: list[Runnable] | None = None):
         self.ids = ids
         self.runnables = runnables
+        self.probes = probes
 
     def invoke(self, input, config=None, **kwargs):  # noqa: A002 (Runnable interface)
         order = [i for i, mid in enumerate(self.ids) if not _on_cooldown(mid)] or list(range(len(self.ids)))
         last: Exception | None = None
         for i in order:
             try:
-                result = self.runnables[i].invoke(input, config, **kwargs)
+                probing = self.probes is not None and _needs_probe(self.ids[i])
+                result = (self.probes[i] if probing else self.runnables[i]).invoke(input, config, **kwargs)
                 if result is None:  # 구조화 출력을 해석하지 못해 None 이 온 경우도 실패로 보고 다음 모델로 넘어간다
                     raise ValueError("model returned no structured output")
+                if probing:
+                    _clear_daily(self.ids[i])
+                    log.info("model %s is back after a daily limit", self.ids[i])
                 _note_model(self.ids[i])
                 return result
             except FALLBACK_EXCEPTIONS as e:
@@ -144,12 +168,14 @@ class ResilientLLM:
     def __init__(self, ids: list[str]):
         self.ids = ids
         self.models = [build_model(m) for m in ids]
+        self.probes = [build_model(m, attempts=1) for m in ids]  # 한도에서 막 풀린 모델을 재시도 없이 찔러 보는 용도
 
     def with_structured_output(self, schema, **kwargs):
-        return CooldownFallback(self.ids, [m.with_structured_output(schema, **kwargs) for m in self.models])
+        return CooldownFallback(self.ids, [m.with_structured_output(schema, **kwargs) for m in self.models],
+                                [m.with_structured_output(schema, **kwargs) for m in self.probes])
 
     def invoke(self, input, config=None, **kwargs):  # noqa: A002
-        return CooldownFallback(self.ids, self.models).invoke(input, config, **kwargs)
+        return CooldownFallback(self.ids, self.models, self.probes).invoke(input, config, **kwargs)
 
 
 def get_llm(models: list[str] | None = None):
