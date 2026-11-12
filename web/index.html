@@ -362,12 +362,12 @@
     function openLogin() {
       // 지난번에 쓴 이름이 있으면 미리 채워 둔다(고쳐 쓰거나 그대로 '시작하기'). 이름 화면은 앱을 열 때마다 먼저 나온다
       loginError.textContent = ""; nameInput.value = user || lastName; sheet.hidden = true; detail.hidden = true; loginEl.hidden = false;
-      nameInput.focus(); nameInput.select();
+      syncReset(); nameInput.focus(); nameInput.select();
     }
     async function enter(name) {
       user = name; entered = true;
       if (name) { lastName = name; try { localStorage.setItem("user", name); } catch (_) {} }  // 다음 방문 때 입력칸에 미리 채우려고만 기억한다
-      loginEl.hidden = true; renderWho(); newSession(); await showEmpty(); input.focus();
+      loginEl.hidden = true; syncReset(); renderWho(); newSession(); await showEmpty(); input.focus();
     }
     document.getElementById("loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -614,7 +614,7 @@
       if (!text || busy) return;
       const intro = chat.querySelector(".empty");
       if (intro) intro.remove();
-      busy = true; sendBtn.disabled = true; sendBtn.setAttribute("aria-busy", "true");
+      busy = true; syncReset(); sendBtn.disabled = true; sendBtn.setAttribute("aria-busy", "true");
       addUser(text);
       input.value = ""; autosize();
       const typing = addTyping();
@@ -633,7 +633,7 @@
         typing.remove();
         addBot({ answer: "답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.\n(" + err.message + ")", contexts: [], trace: [] }, true);
       } finally {
-        busy = false; sendBtn.disabled = false; sendBtn.removeAttribute("aria-busy"); input.focus();
+        busy = false; syncReset(); sendBtn.disabled = false; sendBtn.removeAttribute("aria-busy"); input.focus();
       }
     }
 
@@ -651,8 +651,13 @@
         send(input.value);
       }
     });
-    document.getElementById("reset").addEventListener("click", () => {
-      if (busy) return;
+    // 새 대화: 이력 화면·진료 카드 팝업이 열려 있어도 닫고 새 대화로 넘어간다(뒤쪽 채팅만 바뀌고 화면은 그대로라 '무반응'으로 보이던 문제).
+    // 이름 입력 화면이 떠 있거나 답변을 기다리는 동안에는 누를 수 없게 비활성화해 눌러도 반응 없는 버튼이 되지 않게 한다
+    const resetBtn = document.getElementById("reset");
+    function syncReset() { resetBtn.disabled = busy || !loginEl.hidden; }
+    resetBtn.addEventListener("click", () => {
+      if (resetBtn.disabled) return;
+      detail.hidden = true; sheet.hidden = true; histDirty = false;  // 어차피 첫 화면을 새로 그리므로 삭제 반영용 갱신은 필요 없다
       newSession(); showEmpty(); input.focus();
     });
     document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (!detail.hidden) closeDetail(); else if (!sheet.hidden) closeSheet(); });
