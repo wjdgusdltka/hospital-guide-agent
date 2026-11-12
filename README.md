@@ -45,7 +45,8 @@ FastAPI (src/server.py)
   1. begin/classify      입력 가드레일: PII 마스킹, 범위 분류(증상 / 범위 밖 / 제공 불가 / 인젝션)
   2. triage (병렬)       check_red_flags(별표 1 기준 응급 점검) + retrieve_guidelines(근거 검색)
         (누가 봐도 응급인 표현이 규칙에 걸리면 MedlinePlus 검색은 시작하지 않고 바로 응급 안내: 응급 답변은 별표 1 근거만 쓰므로)
-        응급 → emergency: 119/응급실 안내 + 별표 1 근거 + 진료 메모(make_visit_memo, 병렬) + 지역 질문
+        긴급(별표 1 응급증상) → emergency: 검정 띠, 지금 바로 119/응급실 + 별표 1 근거 + 진료 메모(make_visit_memo, 병렬) + 지역 질문
+        응급일 수 있음 → advise_er: 호박색 띠, 부드러운 응급실 방문 권유 + 진료과 후보(보조) + 바로 119 신호 + 진료 메모 + 지역 질문
         인젝션(증상 없음) → 거절
   3. assess              ask_followup: 정보 부족이면 위험 신호부터 되묻기 (최대 3턴, 답마다 응급 재점검)
   4. recommend           find_related_conditions + recommend_department + make_visit_memo (병렬, 응급이 아닐 때만)
@@ -146,7 +147,7 @@ python evaluation/run_emergency_regression.py
 ```
 
 - 케이스 구성: 별표 1 제1호 응급증상 모든 범주(`basis=law`), 별표 밖 서비스 정책(`basis=policy`), 응급이 아니어야 하는 대조(`basis=negative`), 서비스의 위험 질문에 "아니요"라고 답한 사례(질문 문장 때문에 오판하지 않는지) 포함
-- 마지막 실행(2026-11-12, 기준 보건복지부령 제1189호): 33/33 통과, 별표 항목 인용 23/23 일치(모호한 호흡곤란 사례 N06은 LLM 판단이라 실행마다 갈릴 수 있어 알려진 미충족으로 표시). 결과는 `evaluation/emergency_regression_last_run.json`.
+- 마지막 실행(2026-11-12, 기준 보건복지부령 제1189호): 32/33 통과(+알려진 미충족 1), 별표 항목 인용 23/23 일치, 단계(긴급/권유) 일치 32/33(단계는 어조만 다르고 결론이 같아 통과 여부에는 넣지 않고 따로 셉니다). 모호한 호흡곤란 사례 N06은 LLM 판단이라 응급(권유 단계)으로 나올 때가 있어 알려진 미충족으로 표시. 결과는 `evaluation/emergency_regression_last_run.json`.
 
 ## 트라이앤에러 회고
 

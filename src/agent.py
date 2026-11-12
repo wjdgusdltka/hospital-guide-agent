@@ -6,8 +6,9 @@
      ├ 응급실 목록 요청 / 지역 답 / 응급 안내 이후의 대화 -> locate: 지역이면 응급의료기관 목록,
      │      지역 없는 목록 요청이면 지역을 되묻고, 응급 대화 중이면 emergency_followup(짧은 이어가기 답변)
      └ 증상 -> triage(응급 점검 + 근거 검색, 병렬)
-            ├ 응급                  -> emergency
-            ├ 인젝션                -> refuse_injection
+            ├ 긴급(별표 1 응급증상)  -> emergency (검정 띠, 지금 바로 119/응급실)
+            ├ 응급일 수 있음        -> advise_er (부드러운 응급실 권유 + 진료과 후보)
+            ├ 인젝션              -> refuse_injection
             └ assess(정보 충분?)
                    ├ 부족(3턴 이내) -> followup (되묻기)
                    └ 충분/한도 도달 -> recommend (관련 상태 + 진료과)
@@ -195,7 +196,7 @@ def triage(state: State) -> dict:
     text = _history_text(state)
     if tools.hard_red_flags(text):
         res = tools.check_red_flags(text)  # 규칙 판정이라 LLM 호출 없이 즉시 돌아온다
-        red_out = f"emergency={res.emergency}; 항목={res.matched_items}; {res.reason}"
+        red_out = f"emergency={res.emergency}; level={res.level}; 항목={res.matched_items}; {res.reason}"
         return {"red": res.model_dump(), "docs": [], "trace": _step(state, "check_red_flags", text, red_out)}
 
     def search():
@@ -205,7 +206,7 @@ def triage(state: State) -> dict:
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_red, f_search = pool.submit(tools.check_red_flags, text), pool.submit(search)
         res, (queries, docs) = f_red.result(), f_search.result()
-    red_out = f"emergency={res.emergency}; 항목={res.matched_items}; {res.reason}"
+    red_out = f"emergency={res.emergency}; level={res.level}; 항목={res.matched_items}; {res.reason}"
     docs_out = ", ".join(f"{d['doc_id']}({d['title']})" for d in docs) or "문서 없음"
     trace = _step(state, "check_red_flags", text, red_out)
     trace += [{"step": "retrieve_guidelines", "input": _clip(" | ".join(queries)), "output": _clip(docs_out)}]
@@ -213,9 +214,9 @@ def triage(state: State) -> dict:
 
 
 def route_after_triage(state: State) -> str:
-    """응급이면 응급 안내, 인젝션이면 거절, 아니면 정보 충분성 판단으로."""
+    """긴급이면 응급 안내, 응급일 수 있으면 응급실 권유(+진료과), 인젝션이면 거절, 아니면 정보 충분성 판단으로."""
     if state["red"]["emergency"]:
-        return "emergency"
+        return "emergency" if state["red"].get("level", "urgent") == "urgent" else "advise_er"
     if state["scope"]["category"] == "injection":
         return "refuse_injection"
     return "assess"
@@ -244,6 +245,41 @@ def emergency(state: State) -> dict:
         trace = trace + [{"step": "retrieve_guidelines", "input": "별표 1(응급증상) 검색", "output": _clip(", ".join(d["doc_id"] for d in annex) or "문서 없음")}]
     trace = trace + [{"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"}]
     return {"answer": text, "contexts": _contexts(annex), "emergency_active": True, "awaiting_location": True,
+            "followup_turns": 0, "last_kind": "emergency", "trace": trace}
+
+
+def _safe_dept(history_text: str, docs: list[dict]):
+    """도구 recommend_department 를 호출하되, 실패해도 응급실 권유는 막지 않는다(진료과만 생략)."""
+    try:
+        return tools.recommend_department(history_text, docs)
+    except Exception:
+        return None
+
+
+def advise_er(state: State) -> dict:
+    """응급실 방문 권유(level=advise): 응급일 수 있는 경우. 부드러운 어조로 응급실을 권하고 진료과 후보를 함께 안내한다.
+
+    결론(응급실 방문)은 긴급 안내와 같고 어조만 다르다. 별표 1 근거 검색, 진료과 추천, 진료 메모를 동시에 실행한다.
+    지역 질문과 이후 대화(emergency_followup)는 긴급 안내와 같은 흐름을 탄다.
+    """
+    red, docs = state["red"], state["docs"]
+    text_in = _history_text(state)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_annex = pool.submit(retriever.search_annex, text_in)
+        f_dept, f_memo = pool.submit(_safe_dept, text_in, docs), pool.submit(_safe_memo, text_in)
+        annex, dept, memo = f_annex.result(), f_dept.result(), f_memo.result()
+    depts = dept.departments if dept else []
+    guidance = "응급실 방문 권유" + (f" (별표 1: {', '.join(red['matched_items'])})" if red["matched_items"] else "")
+    if depts:
+        guidance += "; 진료과 후보: " + ", ".join(depts)
+    memo_text = answers.compose_memo(memo, guidance)
+    text = answers.compose_advise(red["matched_items"], red["reason"], depts, dept.reason if dept else "",
+                                  dept.watch_signs if dept else [], state.get("notes", []), memo_text)
+    trace = state.get("trace", []) + [
+        {"step": "recommend_department", "input": "증상과 관련 문서(응급실 권유와 함께 안내)", "output": _clip(f"{depts}: {dept.reason}" if dept else "생략")},
+        {"step": "make_visit_memo", "input": "대화에서 사용자가 말한 내용 정리", "output": "메모 생성" if memo_text else "메모 생략"},
+    ]
+    return {"answer": text, "contexts": _contexts(annex) + _contexts(docs), "emergency_active": True, "awaiting_location": True,
             "followup_turns": 0, "last_kind": "emergency", "trace": trace}
 
 
@@ -307,7 +343,7 @@ def finalize(state: State) -> dict:
 def build_graph():
     """노드와 분기를 연결해 컴파일한다. 체크포인터가 session_id 별 대화 상태를 보관한다."""
     g = StateGraph(State)
-    for fn in (begin, classify, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency,
+    for fn in (begin, classify, refuse, locate, ask_region, lookup, emergency_followup, triage, emergency, advise_er,
                refuse_injection, assess, recommend, finalize):
         g.add_node(fn.__name__, fn)
     g.add_edge(START, "begin")
@@ -317,9 +353,9 @@ def build_graph():
     g.add_conditional_edges("ask_region", route_after_ask_region, ["lookup", "begin"])  # HITL 재개 후: 지역이면 조회, 아니면 새 입력
     g.add_edge("lookup", "finalize")
     g.add_edge("emergency_followup", "finalize")
-    g.add_conditional_edges("triage", route_after_triage, ["emergency", "refuse_injection", "assess"])
+    g.add_conditional_edges("triage", route_after_triage, ["emergency", "advise_er", "refuse_injection", "assess"])
     g.add_conditional_edges("assess", route_after_assess, ["finalize", "recommend"])
-    for node in ("refuse", "emergency", "refuse_injection", "recommend"):
+    for node in ("refuse", "emergency", "advise_er", "refuse_injection", "recommend"):
         g.add_edge(node, "finalize")
     g.add_edge("finalize", END)
     return g.compile(checkpointer=InMemorySaver())

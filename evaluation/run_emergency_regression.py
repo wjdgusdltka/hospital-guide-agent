@@ -34,7 +34,7 @@ def run_case(row: dict) -> dict:
         res = tools.check_red_flags(history_from(row["input"]))
     except Exception as e:  # 호출 실패는 실패로 기록 (한도·네트워크)
         return {**row, "got_emergency": None, "matched_ids": [], "error": f"{type(e).__name__}: {e}"[:200]}
-    return {**row, "got_emergency": res.emergency, "matched_items": res.matched_items,
+    return {**row, "got_emergency": res.emergency, "got_level": res.level, "matched_items": res.matched_items,
             "matched_ids": match_item_ids(res.matched_items), "reason": res.reason}
 
 
@@ -46,7 +46,7 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(run_case, rows))
 
-    rows_out, ok_n, gap_n, item_n, item_total = [], 0, 0, 0, 0
+    rows_out, ok_n, gap_n, item_n, item_total, lvl_n, lvl_total = [], 0, 0, 0, 0, 0, 0
     for r in results:
         expected = r["expected_emergency"] == "true"
         passed = r["got_emergency"] == expected
@@ -61,16 +61,25 @@ def main() -> None:
             ok_n += 1
         elif gap:
             gap_n += 1
+        # 단계(urgent/advise)는 어조만 다르고 결론(응급실)은 같으므로 통과 여부에는 넣지 않고 따로 센다
+        level_ok = None
+        if r["got_emergency"] is not None and r.get("expected_level"):
+            level_ok = r.get("got_level") == r["expected_level"]
+            lvl_total += 1
+            lvl_n += level_ok
         mark = "PASS" if passed else ("GAP " if gap else "FAIL")
         print(f"{mark} {r['id']:<4} [{r['basis']:<8}] 기대={expected!s:<5} 결과={r['got_emergency']!s:<5} "
+              f"단계={r.get('got_level')}({'일치' if level_ok else '다름'}, 기대 {r.get('expected_level')}) "
               f"항목={'-' if item_ok is None else ('일치' if item_ok else '불일치')} {r['matched_ids']}")
         rows_out.append({"id": r["id"], "basis": r["basis"], "expected": expected, "got": r["got_emergency"],
+                         "expected_level": r.get("expected_level"), "got_level": r.get("got_level"),
                          "passed": passed, "known_gap": gap, "expected_item_ids": want_ids,
                          "matched_item_ids": r["matched_ids"], "item_match": item_ok, "error": r.get("error")})
 
     fails = [x["id"] for x in rows_out if not x["passed"] and not x["known_gap"]]
     summary = {"run_date": date.today().isoformat(), "law_version": config.ANNEX1_VERSION, "cases": len(rows_out),
-               "passed": ok_n, "known_gaps": gap_n, "failed": fails, "item_match": f"{item_n}/{item_total}"}
+               "passed": ok_n, "known_gaps": gap_n, "failed": fails, "item_match": f"{item_n}/{item_total}",
+               "level_match": f"{lvl_n}/{lvl_total}"}
     OUT.write_text(json.dumps({"summary": summary, "results": rows_out}, ensure_ascii=False, indent=1), encoding="utf-8")
     print("\n" + json.dumps(summary, ensure_ascii=False))
     sys.exit(1 if fails else 0)

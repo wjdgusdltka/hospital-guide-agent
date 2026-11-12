@@ -18,6 +18,7 @@
   --band-fg: var(--color-paper);
   --band-mark: var(--color-accent-soft);
   --alert-badge: oklch(45% 0.17 27);
+  --advise-edge: oklch(72% 0.15 75);
   --tray-shade: color-mix(in oklab, var(--color-ink) 14%, transparent);
   --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.4  0 0 0 0 0.35  0 0 0 0.09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 }
@@ -143,6 +144,15 @@ body { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr);
 .alert-lead { margin: 0; font: 700 var(--text-xl) / 1.25 var(--font-display); letter-spacing: var(--tracking-display); max-width: none; white-space: pre-wrap; }
 .alert-lead .n119 { font-size: 1.35em; color: var(--band-mark); font-variant-numeric: tabular-nums; }
 .alert-rest { margin-top: var(--space-sm); padding-left: calc(36px + var(--space-sm)); }
+
+/* Softer band for "응급일 수 있어 응급실 방문을 권함": amber edge on the normal surface, no ink, no big 119 button. */
+.row--bot .bubble--advise {
+  background: color-mix(in oklab, var(--advise-edge) 12%, var(--surface));
+  border: var(--rule-hair) solid color-mix(in oklab, var(--advise-edge) 45%, var(--color-rule));
+  border-left: var(--space-2xs) solid var(--advise-edge);
+}
+.advise-lead { margin: 0; font: 700 var(--text-lg, 1.125rem) / 1.35 var(--font-display); max-width: none; }
+.advise-rest { margin-top: var(--space-sm); white-space: pre-wrap; }
 
 /* Small controls (call, map, copy) and the 119 call button on the emergency band */
 .btn--sm { padding: 0 var(--space-sm); font-size: var(--text-sm); }

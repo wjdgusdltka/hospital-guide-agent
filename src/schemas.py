@@ -19,7 +19,12 @@ class ScopeCheck(BaseModel):
 class RedFlagResult(BaseModel):
     """check_red_flags 결과: 별표 1 기준 응급 여부."""
 
-    emergency: bool = Field(description="지금 응급실(119) 이용이 필요해 보이는가")
+    emergency: bool = Field(description="응급실 이용이 필요하거나 권할 만한가 (level 이 urgent 또는 advise 이면 true)")
+    level: Literal["urgent", "advise", "none"] = Field(
+        default="none",
+        description="urgent=별표 1 응급증상에 명확히 해당해 지금 바로 119/응급실 / advise=응급일 수 있어 응급실 방문을 권함"
+        "(준하는 증상+위험 신호, 위험 요인 겹침, '모르겠다'고 한 위험 신호, 애매하지만 배제하기 어려움) / none=응급 아님",
+    )
     matched_items: list[str] = Field(description="해당하는 별표 1 항목 문구(그대로 인용). 없으면 빈 목록")
     reason: str = Field(description="한두 문장의 이유. 병명을 단정하거나 추측하지 않는다")
 

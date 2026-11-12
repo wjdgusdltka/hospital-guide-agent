@@ -257,6 +257,7 @@
       const bubble = el("div", "bubble");
       const answer = data.answer.trim();
       const isAlert = !isError && answer.startsWith("🚨");
+      const isAdvise = !isError && answer.startsWith("⚠️");   // 응급일 수 있어 응급실을 권하는 부드러운 안내
       const { body: answerBody, memo } = isError ? { body: answer, memo: null } : splitMemo(answer);
 
       if (isAlert) {
@@ -282,6 +283,19 @@
         const call = link("119에 전화하기", "tel:119");   // 응급 안내에는 바로 걸 수 있는 119 버튼을 붙인다
         call.classList.add("btn--call");
         bubble.appendChild(call);
+      } else if (isAdvise) {
+        // 응급실 권유: 호박색 띠. 첫 문단은 굵게, 나머지는 일반 본문(진료과 후보 등)으로 이어진다.
+        const body = answerBody.replace(/^⚠️\s*/, "");
+        const cut = body.indexOf("\n\n");
+        const lead = cut === -1 ? body : body.slice(0, cut);
+        const rest = cut === -1 ? "" : body.slice(cut + 2);
+        bubble.classList.add("bubble--advise");
+        bubble.appendChild(el("p", "advise-lead", lead));
+        if (rest) {
+          const restEl = el("div", "advise-rest");
+          setRichText(restEl, rest);
+          bubble.appendChild(restEl);
+        }
       } else if (answerBody.split("\n").some((l) => ROOM_LINE.test(l))) {
         renderBody(bubble, answerBody);          // 응급의료기관 목록이 있는 답변
       } else {

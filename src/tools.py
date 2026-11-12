@@ -10,7 +10,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from . import config
-from .annex import annex_prompt_text
+from .annex import annex_prompt_text, match_item_ids
 from .llm_chain import structured_chain
 from .prompts import (ASSESS_SYSTEM, DEPARTMENT_SYSTEM, DEPARTMENTS, EMERGENCY_REPLY_SYSTEM, LOCATION_SYSTEM,
                       MEMO_SYSTEM, RELATED_SYSTEM, REDFLAG_SYSTEM)
@@ -51,10 +51,27 @@ def check_red_flags(history_text: str) -> RedFlagResult:
     """대화 전체에서 응급 신호를 점검한다: 1) 확실한 표현은 규칙으로 즉시 응급 2) 나머지는 LLM이 별표 1에 비춰 판단."""
     hard = hard_red_flags(history_text)
     if hard:
-        return RedFlagResult(emergency=True, matched_items=hard, reason="입력 내용에 응급을 강하게 시사하는 표현이 있어요.")
+        return RedFlagResult(emergency=True, level="urgent", matched_items=hard, reason="입력 내용에 응급을 강하게 시사하는 표현이 있어요.")
     annex_a, annex_b = annex_prompt_text()
     system = REDFLAG_SYSTEM.format(annex_a=annex_a, annex_b=annex_b)
-    return structured_chain("red_flags", RedFlagResult, system).invoke({"input": history_text})
+    return _normalize_level(structured_chain("red_flags", RedFlagResult, system).invoke({"input": history_text}))
+
+
+def _normalize_level(res: RedFlagResult) -> RedFlagResult:
+    """LLM 이 낸 emergency 와 level 이 어긋나도 위험한 쪽으로 맞춘다(과소 판정 방지).
+
+    - 둘 중 하나라도 응급 쪽이면 emergency=True (level 이 none 이면 advise)
+    - urgent 는 별표 1 '응급증상(A)' 항목을 실제로 인용했을 때만 인정하고, 아니면 advise 로 낮춘다
+    """
+    if res.emergency or res.level != "none":
+        res.emergency = True
+        if res.level == "none":
+            res.level = "advise"
+        if res.level == "urgent" and not any(i.startswith("A-") for i in match_item_ids(res.matched_items)):
+            res.level = "advise"
+    else:
+        res.level = "none"
+    return res
 
 
 # --------------------------------------------------------------- ask_followup

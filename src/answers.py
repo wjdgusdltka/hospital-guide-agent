@@ -62,6 +62,36 @@ def compose_emergency(matched: list[str], reason: str, notes: list[str], memo_te
     return "\n\n".join(parts)
 
 
+def compose_advise(matched: list[str], reason: str, departments: list[str], dept_reason: str, watch_signs: list[str],
+                   notes: list[str], memo_text: str = "") -> str:
+    """응급실 방문 권유(응급일 수 있는 경우). 긴급 안내보다 부드러운 어조지만 '응급실 방문'이라는 결론은 같다.
+
+    순서: 응급실 권유 -> 참고한 기준 -> 지역 질문 -> (보조) 진료과 후보 -> 바로 119 신호 -> 메모.
+    진료과는 응급실보다 뒤에 둔다(외래로 가 버리지 않도록). UI 는 '⚠️'로 시작하는 답변을 호박색 안내 띠로 보여준다.
+    """
+    parts = ["⚠️ 응급실 방문을 권해요. 증상이 가볍게 시작됐더라도 빠르게 나빠질 수 있어서, 오늘 안에 확인받는 게 안전해요."]
+    matched = [m for m in matched if not any(m != o and m in o for o in matched)]
+    basis = ""
+    if matched:
+        basis += "참고한 기준(응급의료법 시행규칙 별표 1)\n" + "\n".join(f"- {m}" for m in matched)
+    if reason:
+        basis += ("\n" if basis else "") + reason
+    if basis:
+        parts.append(basis)
+    if notes:
+        parts.append(" ".join(notes))
+    parts.append("지역(시/도, 시/군/구)을 알려주시면 해당 지역의 응급의료기관을 안내해 드릴게요.")
+    if departments:
+        parts.append("**진료과 후보 (응급실 진료 뒤, 또는 증상이 가라앉았을 때 참고)**\n- " + " 또는 ".join(departments)
+                     + (f"\n{dept_reason}" if dept_reason else ""))
+    if watch_signs:
+        parts.append("**이런 경우에는 기다리지 말고 바로 119에 연락하세요**\n" + "\n".join(f"- {s}" for s in watch_signs))
+    if memo_text:
+        parts.append(memo_text)
+    parts.append(DISCLAIMER)
+    return "\n\n".join(parts)
+
+
 def compose_emergency_reply(reply: str, notes: list[str], ask_location: bool) -> str:
     """응급 안내 뒤 이어지는 대화 답변. 안내문을 통째로 반복하지 않고, 아직 지역을 못 받았으면 한 줄만 다시 묻는다."""
     parts = [reply]
