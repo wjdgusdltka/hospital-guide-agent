@@ -44,7 +44,7 @@
 FastAPI (src/server.py)
    ▼
 [에이전트 그래프 (LangGraph) — src/agent.py]
-  1. begin/classify      입력 가드레일: PII 마스킹, 범위 분류(증상 / 범위 밖 / 제공 불가 / 인젝션 / 인사·감사). 인사·감사·지난 상담 뒤 경과 보고('고마워요', '시킨 대로 응급실 가서 꿰매고 왔어요')는 점검 없이 빠른 모델이 사용자의 말을 받아 짧게 답하고(의학 판단·당부 금지, 119·재방문 안내는 코드가 덧붙임, 모델이 실패하면 고정 문구), '지금' 증상 단어가 섞였으면 정상 점검
+  1. begin/classify      입력 가드레일: PII 마스킹, 범위 분류(증상 / 범위 밖 / 제공 불가 / 주변 병원·약국 찾기(미지원 안내) / 인젝션 / 인사·감사). 인사·감사·지난 상담 뒤 경과 보고('고마워요', '시킨 대로 응급실 가서 꿰매고 왔어요')는 점검 없이 빠른 모델이 사용자의 말을 받아 짧게 답하고(의학 판단·당부 금지, 119·재방문 안내는 코드가 덧붙임, 모델이 실패하면 고정 문구), '지금' 증상 단어가 섞였으면 정상 점검
   2. triage (병렬)       check_red_flags(별표 1 기준 응급 점검) + retrieve_guidelines(근거 검색)
         (누가 봐도 응급인 표현이 규칙에 걸리면 MedlinePlus 검색은 시작하지 않고 바로 응급 안내: 응급 답변은 별표 1 근거만 쓰므로)
         긴급(별표 1 응급증상) → emergency: 검정 띠, 지금 바로 119/응급실 + 별표 1 근거 + 진료 메모(make_visit_memo, 병렬) + 지역 질문
@@ -235,7 +235,7 @@ python evaluation/test_error_recovery.py   # 오류 뒤 대화 이어가기 5건
 python evaluation/test_memory_progress.py  # 진행 중 저장·요약·삭제·50건 15건
 python evaluation/test_llm_fallback.py     # 모델 폴백·스로틀링 프로브 11건
 python evaluation/test_warmup.py           # 서버 시작 워밍업 4건
-python evaluation/test_chitchat.py         # 인사·감사·경과 보고 분기 14건
+python evaluation/test_chitchat.py         # 인사·감사·경과 보고 분기 16건
 ```
 
 ## 트라이앤에러 회고

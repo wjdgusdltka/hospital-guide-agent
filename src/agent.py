@@ -161,7 +161,7 @@ def route_after_classify(state: State) -> str:
         if not _no_current_symptom(state["question"], limit=160):
             return "triage"
         return "checkin" if state.get("last_kind") == "greeting" else "chitchat"
-    if cat in ("out_of_scope", "unavailable"):
+    if cat in ("out_of_scope", "unavailable", "clinic_lookup"):
         return "refuse"
     # 응급실 목록 요청, 지역 답변을 기다리는 중의 답, 응급 안내 뒤의 대화는 모두 locate 에서 먼저 처리한다
     if cat == "er_lookup" or (cat == "symptom" and (state.get("emergency_active") or state.get("awaiting_location"))):
@@ -210,7 +210,8 @@ def checkin(state: State) -> dict:
 
 def refuse(state: State) -> dict:
     """범위 밖이거나 제공하지 않는 정보 요청을 정중히 거절한다."""
-    text = answers.REFUSE_UNAVAILABLE if state["scope"]["category"] == "unavailable" else answers.REFUSE_OUT_OF_SCOPE
+    text = {"unavailable": answers.REFUSE_UNAVAILABLE, "clinic_lookup": answers.REFUSE_CLINIC_LOOKUP}.get(
+        state["scope"]["category"], answers.REFUSE_OUT_OF_SCOPE)
     return {"answer": text, "last_kind": "refuse"}
 
 

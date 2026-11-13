@@ -71,7 +71,13 @@ def main() -> int:
     r = agent.run_agent("고마워!", "chit-fail")
     check("답변 모델이 실패해도 고정 문구로 정상 답변", "도움이 되었다니" in r["answer"], r["answer"][:30])
 
-    print(f"\n{14 - bad}/14 통과")
+    # 주변 병원·진료과 의원 찾기(응급실이 아님)는 지원하지 않는다고 안내한다
+    check("clinic_lookup 은 거절 노드로 간다", route("주변 안과 알려줄 수 있어?", "clinic_lookup") == "refuse")
+    check("지원하지 않는다는 전용 문구로 답하고 응급실 목록·119 를 안내함",
+          agent.refuse({"scope": {"category": "clinic_lookup"}})["answer"] == answers.REFUSE_CLINIC_LOOKUP
+          and "지원하지 않아요" in answers.REFUSE_CLINIC_LOOKUP and "119" in answers.REFUSE_CLINIC_LOOKUP)
+
+    print(f"\n{16 - bad}/16 통과")
     return 1 if bad else 0
 
 
